@@ -120,7 +120,9 @@ public class PluginConfiguration : BasePluginConfiguration
     /// <summary>Clamps values that a hand-edited config file could have broken.</summary>
     public void Normalize()
     {
-        $15;
+        if (MaxItemsPerRun <= 0)
+        {
+            MaxItemsPerRun = 5;
         }
 
         if (MaxCandidates <= 0)
