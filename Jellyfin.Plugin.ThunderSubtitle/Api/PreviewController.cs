@@ -27,6 +27,7 @@ public sealed class PreviewController : ControllerBase
     private readonly ThunderClient _thunder;
     private readonly PreviewTextCache _cache;
     private readonly PluginLog _log;
+    private int _clientServed;
 
     /// <summary>Initializes a new instance of the <see cref="PreviewController"/> class.</summary>
     /// <param name="thunder">Used to fetch the candidate again.</param>
@@ -48,6 +49,11 @@ public sealed class PreviewController : ControllerBase
     [HttpGet("Client.js")]
     public IActionResult Client()
     {
+        if (Interlocked.Exchange(ref _clientServed, 1) == 0)
+        {
+            _log.Info("预览脚本已被浏览器加载，字幕弹窗里会出现预览按钮。");
+        }
+
         Response.Headers.CacheControl = "no-cache";
         return Content(ClientScript.Value, "application/javascript; charset=utf-8");
     }

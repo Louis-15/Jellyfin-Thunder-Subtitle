@@ -18,22 +18,74 @@
     var ID_MARKER = 'ts1-';
     var BUTTON_CLASS = 'btnThunderPreview';
     var STYLE_ID = 'thunderSubtitlePreviewStyle';
+
+    // document.currentScript is only available while this file executes, so capture it now:
+    // it is the fallback for the API root when window.ApiClient is not exposed.
+    var SCRIPT_SRC = (document.currentScript && document.currentScript.src) || '';
     var overlay = null;
     var wrapEnabled = true;
 
-    function apiUrl(name, params) {
-        var client = window.ApiClient;
-        if (!client || typeof client.getUrl !== 'function') {
-            return null;
-        }
-
-        return client.getUrl('ThunderSubtitle/' + name, params);
+    function apiRoot() {
+        var index = SCRIPT_SRC.indexOf('/ThunderSubtitle/');
+        return index >= 0 ? SCRIPT_SRC.substring(0, index) : '';
     }
 
-    function authorizationHeader() {
+    function queryString(params) {
+        var parts = [];
+        for (var key in params) {
+            if (Object.prototype.hasOwnProperty.call(params, key)) {
+                parts.push(encodeURIComponent(key) + '=' + encodeURIComponent(params[key]));
+            }
+        }
+
+        return parts.length ? '?' + parts.join('&') : '';
+    }
+
+    function apiUrl(name, params) {
         var client = window.ApiClient;
-        var token = client && typeof client.accessToken === 'function' ? client.accessToken() : null;
-        return token ? 'MediaBrowser Token="' + token + '"' : null;
+        if (client && typeof client.getUrl === 'function') {
+            try {
+                return client.getUrl('ThunderSubtitle/' + name, params);
+            } catch (error) {
+                // Fall through to the path derived from the script tag.
+            }
+        }
+
+        var root = apiRoot();
+        return root ? root + '/ThunderSubtitle/' + name + queryString(params) : null;
+    }
+
+    function accessToken() {
+        var client = window.ApiClient;
+        try {
+            if (client && typeof client.accessToken === 'function') {
+                var token = client.accessToken();
+                if (token) {
+                    return token;
+                }
+            }
+        } catch (error) {
+            // Older/newer clients differ; the credential store below is the stable fallback.
+        }
+
+        try {
+            var raw = window.localStorage.getItem('jellyfin_credentials');
+            if (!raw) {
+                return null;
+            }
+
+            var parsed = JSON.parse(raw);
+            var servers = (parsed && parsed.Data && parsed.Data.Servers) || (parsed && parsed.Servers) || [];
+            for (var i = 0; i < servers.length; i++) {
+                if (servers[i] && servers[i].AccessToken) {
+                    return servers[i].AccessToken;
+                }
+            }
+        } catch (error) {
+            // Ignore: the caller reports "please sign in again".
+        }
+
+        return null;
     }
 
     // Jellyfin prefixes the provider id with an md5 of the provider name and an underscore.
@@ -215,13 +267,20 @@
 
         var url = apiUrl('Text', { id: subtitleId });
         var headers = {};
-        var auth = authorizationHeader();
-        if (auth) {
-            headers.Authorization = auth;
+        var token = accessToken();
+        if (token) {
+            headers.Authorization = 'MediaBrowser Token="' + token + '"';
         }
 
         if (!url) {
-            body.textContent = '页面还没准备好，请稍后重试。';
+            title.textContent = '无法预览';
+            body.textContent = '拿不到服务器的 API 地址，请刷新页面后重试。';
+            return;
+        }
+
+        if (!token) {
+            title.textContent = '无法预览';
+            body.textContent = '没有读到登录凭据，请退出并重新登录 Jellyfin 后再试。';
             return;
         }
 
@@ -260,6 +319,14 @@
 
         var observer = new MutationObserver(scheduleScan);
         observer.observe(document.body, { childList: true, subtree: true });
+
+        // Belt and braces: re-scan once a second while a subtitle dialog is on screen, so a row
+        // that is re-rendered without a childList mutation still gets its button.
+        window.setInterval(function () {
+            if (document.querySelector('.subtitleEditorDialog')) {
+                scan();
+            }
+        }, 1000);
     }
 
     if (document.readyState === 'loading') {

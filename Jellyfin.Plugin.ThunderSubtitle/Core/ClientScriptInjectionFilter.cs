@@ -117,6 +117,12 @@ public sealed class ClientScriptInjectionFilter : IStartupFilter
         context.Request.Headers.Remove("Range");
         context.Request.Headers.Remove("If-Range");
 
+        // The shell keeps its ETag across plugin updates, so a browser that already cached the
+        // un-injected copy would get a 304 and keep using it forever. Dropping the validators
+        // forces a 200 with a body we can rewrite; the document is 5 KB, so this is cheap.
+        context.Request.Headers.Remove("If-None-Match");
+        context.Request.Headers.Remove("If-Modified-Since");
+
         var originalBody = context.Response.Body;
         using var buffer = new MemoryStream();
         context.Response.Body = buffer;
