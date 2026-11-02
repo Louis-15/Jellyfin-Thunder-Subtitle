@@ -9,12 +9,12 @@
     "imageUrl": "https://raw.githubusercontent.com/Louis-15/Jellyfin-Thunder-Subtitle/main/logo.png",
     "versions": [
       {
-        "version": "1.7.1.0",
-        "changelog": "Release 1.7.1.0\n\n修复：预览页误用了 EnableInMainMenu，导致插件「设置」按钮跳到预览页；设置页顶部加「字幕全文预览」入口",
+        "version": "1.8.0.0",
+        "changelog": "Release 1.8.0.0\n\n预览按钮改为插在 Jellyfin 字幕弹窗的下载按钮旁（IStartupFilter 请求时注入脚本，不写磁盘）；预览读全文到弹窗，仅内存缓存；AI 评分与评语另起一行；去掉预览行数设置",
         "targetAbi": "12.2.0.0",
-        "sourceUrl": "https://github.com/Louis-15/Jellyfin-Thunder-Subtitle/releases/download/v1.7.1.0/thunder-subtitle_1.7.1.0.zip",
-        "checksum": "85a33e89f1d99854eea325dc40b93347",
-        "timestamp": "2026-11-02T18:06:31Z"
+        "sourceUrl": "https://github.com/Louis-15/Jellyfin-Thunder-Subtitle/releases/download/v1.8.0.0/thunder-subtitle_1.8.0.0.zip",
+        "checksum": "9f8dfa9b7c9001b481494ae7427af51a",
+        "timestamp": "2026-11-02T18:28:49Z"
       }
     ]
   }
