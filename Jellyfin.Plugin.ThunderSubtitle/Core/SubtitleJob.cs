@@ -46,6 +46,7 @@ public sealed class SubtitleJob
     private readonly IDirectoryService _directoryService;
     private readonly ThunderClient _thunder;
     private readonly ProvenanceStore _provenance;
+    private readonly AiSubtitleJudge _ai;
     private readonly PluginLog _log;
 
     private DateTimeOffset _lastSearchAt = DateTimeOffset.MinValue;
@@ -56,6 +57,7 @@ public sealed class SubtitleJob
     /// <param name="directoryService">Needed to build <see cref="MetadataRefreshOptions"/>.</param>
     /// <param name="thunder">The Xunlei API client.</param>
     /// <param name="provenance">Ledger of subtitles this plugin wrote.</param>
+    /// <param name="ai">The optional chat-model judge.</param>
     /// <param name="logger">Logger.</param>
     public SubtitleJob(
         ILibraryManager libraryManager,
@@ -63,6 +65,7 @@ public sealed class SubtitleJob
         IDirectoryService directoryService,
         ThunderClient thunder,
         ProvenanceStore provenance,
+        AiSubtitleJudge ai,
         ILogger<SubtitleJob> logger)
     {
         _libraryManager = libraryManager;
@@ -70,6 +73,7 @@ public sealed class SubtitleJob
         _directoryService = directoryService;
         _thunder = thunder;
         _provenance = provenance;
+        _ai = ai;
         _log = new PluginLog(logger);
     }
 
@@ -346,33 +350,37 @@ public sealed class SubtitleJob
             return ProcessResult.NoCandidates;
         }
 
-        var ranked = SubtitleRanker.Rank(downloaded);
-        var best = SubtitleRanker.SelectBest(downloaded, code);
-        if (best is null)
+        var ranked = SubtitleRanker.Rank(downloaded, code);
+        if (ranked.Count == 0)
         {
             _log.Warn($"{Display(item)} [{code}]：下载到的 {downloaded.Count} 条候选全部属于其它番号，已全部丢弃。");
             return ProcessResult.NoCandidates;
         }
 
-        _log.Info($"{Display(item)} [{code}]：有效 {ranked.Count} 条，最优「{best.CandidateName}」（{best.Bytes} B，{best.Extension}，{best.EncodingName}，AI标记 {best.AiMarkers}）。");
+        var best = await PickBestAsync(item, code, ranked, config, cancellationToken).ConfigureAwait(false);
+
+        _log.Info($"{Display(item)} [{code}]：最优「{best.CandidateName}」（{best.ContentChars} 字 / {best.CueCount} 条，{best.Bytes} B，{best.Extension}，{best.EncodingName}，AI标记 {best.AiMarkers}）。");
 
         if (existing is not null)
         {
             var existingBytes = new FileInfo(existing).Length;
             var existingText = TryReadText(existing);
             var existingHash = existingText is null ? null : SubtitleText.Hash(existingText);
+            var existingStats = existingText is null
+                ? new SubtitleStats(0, Math.Max(0, (int)(existingBytes / 3)))
+                : SubtitleContent.Measure(existingText, Path.GetExtension(existing));
             var record = _provenance.Get(ItemKey(item));
             var knownMarkers = record is not null && string.Equals(record.File, existing, StringComparison.Ordinal)
                 ? record.AiMarkers
                 : (int?)null;
 
-            if (!SubtitleRanker.IsUpgrade(best, existingBytes, existingHash, knownMarkers))
+            if (!SubtitleRanker.IsUpgrade(best, existingStats, existingHash, knownMarkers))
             {
-                _log.Info($"{Display(item)} [{code}]：现有「{Path.GetFileName(existing)}」{existingBytes} B 不差于候选，保留。");
+                _log.Info($"{Display(item)} [{code}]：现有「{Path.GetFileName(existing)}」{existingStats.ContentChars} 字 / {existingBytes} B 不差于候选，保留。");
                 return ProcessResult.KeptExisting;
             }
 
-            _log.Info($"{Display(item)} [{code}]：升级「{Path.GetFileName(existing)}」{existingBytes} B → {best.Bytes} B。");
+            _log.Info($"{Display(item)} [{code}]：升级「{Path.GetFileName(existing)}」{existingStats.ContentChars} 字 → {best.ContentChars} 字（{existingBytes} B → {best.Bytes} B）。");
         }
 
         var target = Sidecar.TargetPath(mediaPath, best.Extension);
@@ -396,6 +404,61 @@ public sealed class SubtitleJob
 
         await VerifyAsync(item, target, cancellationToken).ConfigureAwait(false);
         return ProcessResult.Written;
+    }
+
+    /// <summary>
+    /// Chooses the candidate to write. The deterministic ranking decides first; when AI
+    /// review is enabled the largest finalists are then compared as text, because a
+    /// machine translation is frequently the <em>longest</em> file — every filler word and
+    /// every grunt gets translated, and the result is verbose and wrong.
+    /// </summary>
+    private async Task<SubtitlePick> PickBestAsync(
+        BaseItem item,
+        string code,
+        IReadOnlyList<SubtitlePick> ranked,
+        PluginConfiguration config,
+        CancellationToken cancellationToken)
+    {
+        var best = ranked[0];
+        if (!config.IsAiUsable || ranked.Count < 2)
+        {
+            if (config.AiEnabled && !config.IsAiUsable)
+            {
+                _log.Warn($"{Display(item)} [{code}]：AI 评审已开启但缺少 Base URL 或模型名，按字符数排序。");
+            }
+
+            return best;
+        }
+
+        var shortlist = ranked.Take(Math.Min(config.AiTopCandidates, ranked.Count)).ToList();
+        _log.Info($"{Display(item)} [{code}]：有效 {ranked.Count} 条，字符数前 {shortlist.Count} 名："
+                  + string.Join(" / ", shortlist.Select((pick, index) => $"#{index + 1} {pick.CandidateName}（{pick.ContentChars} 字 / {pick.CueCount} 条）")));
+
+        var verdicts = await _ai
+            .JudgeAsync(code, shortlist, AiSettings.From(config), cancellationToken)
+            .ConfigureAwait(false);
+
+        if (verdicts is null)
+        {
+            _log.Info($"{Display(item)} [{code}]：AI 评审未返回结果，按字符数排序选「{best.CandidateName}」。");
+            return best;
+        }
+
+        foreach (var verdict in verdicts.Values.OrderBy(value => value.Id))
+        {
+            var pick = shortlist[verdict.Id - 1];
+            var flag = verdict.MachineTranslated ? " [机翻]" : string.Empty;
+            _log.Info($"  AI #{verdict.Id}「{pick.CandidateName}」{verdict.Score:F0} 分{flag} {verdict.Reason}");
+        }
+
+        var reordered = SubtitleRanker.ApplyAiVerdicts(shortlist, verdicts);
+        var winner = reordered[0];
+        if (!ReferenceEquals(winner, best))
+        {
+            _log.Info($"{Display(item)} [{code}]：AI 改选「{winner.CandidateName}」（原字符数第一为「{best.CandidateName}」）。");
+        }
+
+        return winner;
     }
 
     /// <summary>

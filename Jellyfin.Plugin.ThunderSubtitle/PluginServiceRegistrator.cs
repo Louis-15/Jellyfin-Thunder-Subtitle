@@ -19,6 +19,7 @@ public sealed class PluginServiceRegistrator : IPluginServiceRegistrator
 
         services.AddSingleton(_ => new ThunderClient(ThunderClient.CreateDefaultClient()));
         services.AddSingleton<ProvenanceStore>();
+        services.AddSingleton<AiSubtitleJudge>();
         services.AddSingleton<SubtitleJob>();
 
         // Jellyfin instantiates every IScheduledTask implementation through DI at startup,

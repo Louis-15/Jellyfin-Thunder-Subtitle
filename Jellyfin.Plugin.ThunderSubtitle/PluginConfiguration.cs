@@ -35,6 +35,38 @@ public class PluginConfiguration : BasePluginConfiguration
     /// <summary>Gets or sets the log level written to the Jellyfin log.</summary>
     public string LogLevel { get; set; } = "Information";
 
+    /// <summary>
+    /// Gets or sets a value indicating whether the largest finalists are sent to a chat
+    /// model so it can tell a real translation from verbose machine output.
+    /// </summary>
+    public bool AiEnabled { get; set; }
+
+    /// <summary>Gets or sets the OpenAI-compatible API root, e.g. <c>https://api.deepseek.com/v1</c>.</summary>
+    public string AiBaseUrl { get; set; } = "https://api.deepseek.com/v1";
+
+    /// <summary>Gets or sets the API key. Sent as a bearer token, never logged.</summary>
+    public string AiApiKey { get; set; } = string.Empty;
+
+    /// <summary>Gets or sets the model name.</summary>
+    public string AiModel { get; set; } = "deepseek-chat";
+
+    /// <summary>Gets or sets how many of the largest candidates are compared by the model.</summary>
+    public int AiTopCandidates { get; set; } = 3;
+
+    /// <summary>Gets or sets how many cue lines are sampled from each candidate.</summary>
+    public int AiSampleCues { get; set; } = 24;
+
+    /// <summary>Gets or sets the hard cap on sampled characters per candidate.</summary>
+    public int AiMaxCharsPerCandidate { get; set; } = 3000;
+
+    /// <summary>Gets or sets the per-request timeout.</summary>
+    public int AiTimeoutSeconds { get; set; } = 60;
+
+    /// <summary>Gets a value indicating whether the AI check has everything it needs.</summary>
+    public bool IsAiUsable => AiEnabled
+                              && !string.IsNullOrWhiteSpace(AiBaseUrl)
+                              && !string.IsNullOrWhiteSpace(AiModel);
+
     /// <summary>Parses <see cref="LogLevel"/> without throwing on a hand-edited config file.</summary>
     /// <returns>The configured level, or <see cref="Core.PluginLogLevel.Information"/>.</returns>
     public Core.PluginLogLevel ResolveLogLevel()
@@ -78,5 +110,13 @@ public class PluginConfiguration : BasePluginConfiguration
         RequestIntervalMs = Math.Clamp(RequestIntervalMs, 0, 10_000);
         LibraryIds ??= Array.Empty<string>();
         LogLevel ??= "Information";
+
+        AiBaseUrl ??= string.Empty;
+        AiApiKey ??= string.Empty;
+        AiModel ??= string.Empty;
+        AiTopCandidates = Math.Clamp(AiTopCandidates, 2, 5);
+        AiSampleCues = Math.Clamp(AiSampleCues, 4, 80);
+        AiMaxCharsPerCandidate = Math.Clamp(AiMaxCharsPerCandidate, 500, 20_000);
+        AiTimeoutSeconds = Math.Clamp(AiTimeoutSeconds, 10, 300);
     }
 }

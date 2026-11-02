@@ -17,6 +17,12 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\Jellyfin.Plugin.ThunderSubtitle\Jellyfin.Plugin.ThunderSubtitle.csproj" />
+    <!--
+      The plugin project deliberately does not copy Jellyfin assemblies next to its dll.
+      The test host needs them at runtime to construct PluginConfiguration, so they are
+      referenced here with their runtime assets included.
+    -->
+    <PackageReference Include="Jellyfin.Controller" Version="12.2.0" />
   </ItemGroup>
 
 </Project>

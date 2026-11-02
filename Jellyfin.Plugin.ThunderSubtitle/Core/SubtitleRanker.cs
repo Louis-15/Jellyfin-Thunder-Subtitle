@@ -5,12 +5,37 @@ using System.Linq;
 namespace Jellyfin.Plugin.ThunderSubtitle.Core;
 
 /// <summary>A downloaded, decoded and validated subtitle, ready to be written.</summary>
-/// <param name="CandidateName">The name the API reported, shown in the log.</param>
-/// <param name="Extension">The whitelisted extension that matches the content.</param>
-/// <param name="Text">The subtitle text.</param>
-/// <param name="EncodingName">The encoding it was decoded from.</param>
-public sealed record SubtitlePick(string CandidateName, string Extension, string Text, string EncodingName)
+public sealed record SubtitlePick
 {
+    /// <summary>Initializes a new instance of the <see cref="SubtitlePick"/> class.</summary>
+    /// <param name="candidateName">The name the API reported.</param>
+    /// <param name="extension">The whitelisted extension that matches the content.</param>
+    /// <param name="text">The subtitle text.</param>
+    /// <param name="encodingName">The encoding it was decoded from.</param>
+    public SubtitlePick(string candidateName, string extension, string text, string encodingName)
+    {
+        CandidateName = candidateName;
+        Extension = extension;
+        Text = text;
+        EncodingName = encodingName;
+        Stats = SubtitleContent.Measure(text, extension);
+    }
+
+    /// <summary>Gets the name the API reported, shown in the log.</summary>
+    public string CandidateName { get; }
+
+    /// <summary>Gets the whitelisted extension that matches the content.</summary>
+    public string Extension { get; }
+
+    /// <summary>Gets the subtitle text.</summary>
+    public string Text { get; }
+
+    /// <summary>Gets the encoding it was decoded from.</summary>
+    public string EncodingName { get; }
+
+    /// <summary>Gets the dialogue volume, the format independent measure used for ranking.</summary>
+    public SubtitleStats Stats { get; }
+
     /// <summary>Gets the number of machine-translation markers found in the candidate name.</summary>
     public int AiMarkers => SubtitleRanker.CountAiMarkers(CandidateName);
 
@@ -19,6 +44,16 @@ public sealed record SubtitlePick(string CandidateName, string Extension, string
 
     /// <summary>Gets the CRLF-insensitive content hash.</summary>
     public string Hash => SubtitleText.Hash(Text);
+
+    /// <summary>Gets the dialogue character count; higher means more subtitle content.</summary>
+    public int ContentChars => Stats.ContentChars;
+
+    /// <summary>Gets the number of dialogue lines.</summary>
+    public int CueCount => Stats.CueCount;
+
+    /// <summary>Gets every cue of the subtitle, for sampling.</summary>
+    /// <returns>The cues.</returns>
+    public IReadOnlyList<SubtitleCue> Cues() => SubtitleContent.Parse(Text, Extension);
 }
 
 /// <summary>
@@ -54,8 +89,8 @@ public static class SubtitleRanker
     /// <summary>Smallest relative gain that counts as an upgrade of an existing subtitle.</summary>
     public const double MinimumGrowthRatio = 0.05;
 
-    /// <summary>Smallest absolute gain that counts as an upgrade of an existing subtitle.</summary>
-    public const long MinimumGrowthBytes = 1024;
+    /// <summary>Smallest absolute gain, in dialogue characters, that counts as an upgrade.</summary>
+    public const int MinimumGrowthChars = 30;
 
     /// <summary>Counts how many machine-translation markers the name carries.</summary>
     /// <param name="name">The candidate name.</param>
@@ -98,8 +133,38 @@ public static class SubtitleRanker
             // A name that carries the code proves the release; a hash name does not.
             .OrderBy(entry => entry.Code is null ? 1 : 0)
             .ThenBy(entry => entry.Pick.AiMarkers)
-            .ThenByDescending(entry => entry.Pick.Bytes)
+
+            // Dialogue volume, not file size: an ASS wrapper or a BOM must not win.
+            .ThenByDescending(entry => entry.Pick.ContentChars)
+            .ThenByDescending(entry => entry.Pick.CueCount)
             .ThenBy(entry => entry.Pick.CandidateName, StringComparer.OrdinalIgnoreCase)
+            .Select(entry => entry.Pick)
+            .ToArray();
+    }
+
+    /// <summary>
+    /// Reorders a shortlist using an AI verdict. Machine-translated candidates sink to the
+    /// bottom, then the higher score wins, then dialogue volume breaks ties.
+    /// </summary>
+    /// <param name="shortlist">The candidates that were judged.</param>
+    /// <param name="verdicts">One verdict per candidate, keyed by the 1-based id used in the prompt.</param>
+    /// <returns>The shortlist, best first; the input unchanged when a verdict is missing.</returns>
+    public static IReadOnlyList<SubtitlePick> ApplyAiVerdicts(
+        IReadOnlyList<SubtitlePick> shortlist,
+        IReadOnlyDictionary<int, AiVerdict> verdicts)
+    {
+        if (shortlist.Count == 0
+            || verdicts.Count != shortlist.Count
+            || shortlist.Where((_, index) => !verdicts.ContainsKey(index + 1)).Any())
+        {
+            return shortlist;
+        }
+
+        return shortlist
+            .Select((pick, index) => (Pick: pick, Verdict: verdicts[index + 1]))
+            .OrderBy(entry => entry.Verdict.MachineTranslated ? 1 : 0)
+            .ThenByDescending(entry => entry.Verdict.Score)
+            .ThenByDescending(entry => entry.Pick.ContentChars)
             .Select(entry => entry.Pick)
             .ToArray();
     }
@@ -149,11 +214,11 @@ public static class SubtitleRanker
     /// already on disk.
     /// </summary>
     /// <param name="candidate">The freshly ranked best candidate.</param>
-    /// <param name="existingBytes">Size of the file on disk.</param>
+    /// <param name="existing">Dialogue volume of the file on disk.</param>
     /// <param name="existingHash">Hash of the file on disk, when it could be decoded.</param>
     /// <param name="existingAiMarkers">Markers recorded for the file on disk, when known.</param>
     /// <returns><c>true</c> when the candidate is an upgrade.</returns>
-    public static bool IsUpgrade(SubtitlePick candidate, long existingBytes, string? existingHash, int? existingAiMarkers)
+    public static bool IsUpgrade(SubtitlePick candidate, SubtitleStats existing, string? existingHash, int? existingAiMarkers)
     {
         if (existingHash is not null && string.Equals(existingHash, candidate.Hash, StringComparison.Ordinal))
         {
@@ -166,9 +231,9 @@ public static class SubtitleRanker
             return true;
         }
 
-        // Otherwise a re-upload that is a few bytes longer is churn, not an upgrade: one
-        // extra note or a different line ending. Only a real gain replaces the file.
-        var threshold = Math.Max(MinimumGrowthBytes, (long)(existingBytes * MinimumGrowthRatio));
-        return candidate.Bytes > existingBytes + threshold;
+        // Otherwise a re-upload with a slightly longer line is churn, not an upgrade.
+        // Compare dialogue characters so an ASS-to-SRT switch does not look like growth.
+        var threshold = Math.Max(MinimumGrowthChars, (int)(existing.ContentChars * MinimumGrowthRatio));
+        return candidate.ContentChars > existing.ContentChars + threshold;
     }
 }
