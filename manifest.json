@@ -9,12 +9,12 @@
     "imageUrl": "https://raw.githubusercontent.com/Louis-15/Jellyfin-Thunder-Subtitle/main/logo.png",
     "versions": [
       {
-        "version": "1.6.0.0",
-        "changelog": "Release 1.6.0.0\n\nAI 评审：条数并列时扩大送审范围（上限 8 份）；送给模型的台词去掉时间轴；搜索结果第三行显示中间对白预览（PreviewLines，默认 6 行）；修正 AI 重排后分数错位",
+        "version": "1.7.0.0",
+        "changelog": "Release 1.7.0.0\n\n新增「字幕全文预览」页（插件自带 API + 内存缓存）：按番号搜索后可读完整字幕再决定写入，预览不落影片文件夹，写入后自动清空该片缓存",
         "targetAbi": "12.2.0.0",
-        "sourceUrl": "https://github.com/Louis-15/Jellyfin-Thunder-Subtitle/releases/download/v1.6.0.0/thunder-subtitle_1.6.0.0.zip",
-        "checksum": "d4a8f2ce45b4c903550610fda3688c77",
-        "timestamp": "2026-11-02T17:40:13Z"
+        "sourceUrl": "https://github.com/Louis-15/Jellyfin-Thunder-Subtitle/releases/download/v1.7.0.0/thunder-subtitle_1.7.0.0.zip",
+        "checksum": "393d093d4c0cd53e53530f7db7d24599",
+        "timestamp": "2026-11-02T17:56:37Z"
       }
     ]
   }
