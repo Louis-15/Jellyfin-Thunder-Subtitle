@@ -66,6 +66,11 @@
                         只处理所选影视库里<strong>完全没有字幕</strong>的影片，115 同步下来的
                         <code>&lt;片名&gt;.srt</code> 永远不会被覆盖。
                     </p>
+                    <p class="fieldDescription">
+                        想先读完整字幕再决定用哪一份？打开
+                        <a href="#" id="OpenPreviewTop">「字幕全文预览」</a>
+                        —— 预览只占用服务器内存，<strong>不会写进影片文件夹</strong>。
+                    </p>
                 </div>
 
                 <div class="ts-section">
@@ -475,6 +480,10 @@
                 });
             }
 
+            function openPreview() {
+                Dashboard.navigate('configurationpage?name=thundersubtitlepreview');
+            }
+
             document.querySelector('#ThunderSubtitleConfigPage').addEventListener('pageshow', function () {
                 page = this;
                 Dashboard.showLoadingMsg();
@@ -499,8 +508,10 @@
             document.querySelector('#OpenTasks').addEventListener('click', function () {
                 Dashboard.navigate('scheduledtasks');
             });
-            document.querySelector('#OpenPreview').addEventListener('click', function () {
-                Dashboard.navigate('configurationpage?name=thundersubtitlepreview');
+            document.querySelector('#OpenPreview').addEventListener('click', openPreview);
+            document.querySelector('#OpenPreviewTop').addEventListener('click', function (event) {
+                event.preventDefault();
+                openPreview();
             });
         })();
     </script>

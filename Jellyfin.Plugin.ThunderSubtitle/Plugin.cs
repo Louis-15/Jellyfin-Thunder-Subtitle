@@ -56,12 +56,10 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
             },
             new PluginPageInfo
             {
-                // Listed in the dashboard drawer, because Jellyfin's own subtitle dialog is
-                // closed source on the client side and cannot host a preview button.
+                // Deliberately without EnableInMainMenu: Jellyfin treats that flag as "this is
+                // the plugin's settings page", so flagging the second page made the plugin's
+                // Settings button open the preview instead of the configuration.
                 Name = "thundersubtitlepreview",
-                DisplayName = "字幕全文预览",
-                MenuIcon = "subtitles",
-                EnableInMainMenu = true,
                 EmbeddedResourcePath = GetType().Namespace + ".Web.previewPage.html"
             }
         ];
