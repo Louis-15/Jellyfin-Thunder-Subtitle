@@ -267,6 +267,13 @@
                     <button is="emby-button" type="button" id="OpenTasks" class="raised">
                         <span>打开计划任务</span>
                     </button>
+                    <button is="emby-button" type="button" id="OpenPreview" class="raised">
+                        <span>字幕全文预览</span>
+                    </button>
+                </div>
+                <div class="fieldDescription">
+                    「字幕全文预览」可以按番号搜索候选，把每一份字幕<strong>完整读一遍</strong>后再决定写入哪一份，
+                    预览期间不会有任何文件落进影片文件夹。
                 </div>
                 <div id="RunStatus" class="ts-status" style="display: none;"></div>
             </div>
@@ -491,6 +498,9 @@
             });
             document.querySelector('#OpenTasks').addEventListener('click', function () {
                 Dashboard.navigate('scheduledtasks');
+            });
+            document.querySelector('#OpenPreview').addEventListener('click', function () {
+                Dashboard.navigate('configurationpage?name=thundersubtitlepreview');
             });
         })();
     </script>

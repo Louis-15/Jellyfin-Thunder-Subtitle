@@ -1,0 +1,488 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>字幕全文预览</title>
+    <style>
+        #ThunderSubtitlePreviewPage .ts-section {
+            margin-bottom: 1.25rem;
+            padding-bottom: 1rem;
+            border-bottom: 1px solid rgba(127, 127, 127, 0.18);
+        }
+
+        #ThunderSubtitlePreviewPage .ts-row {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 0.6rem;
+            align-items: flex-end;
+        }
+
+        #ThunderSubtitlePreviewPage .ts-row .inputContainer {
+            flex: 1 1 12rem;
+            margin: 0;
+        }
+
+        #ThunderSubtitlePreviewPage .ts-status {
+            margin-top: 0.6rem;
+            padding: 0.6em 0.9em;
+            border-left: 0.35em solid #3aa655;
+            background: rgba(255, 255, 255, 0.06);
+            border-radius: 0.2em;
+            white-space: pre-line;
+        }
+
+        #ThunderSubtitlePreviewPage .ts-status.ts-status-bad {
+            border-left-color: #cc3b3b;
+        }
+
+        #ThunderSubtitlePreviewPage .ts-candidate {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 0.5rem 1rem;
+            align-items: center;
+            justify-content: space-between;
+            padding: 0.55rem 0.2rem;
+            border-bottom: 1px solid rgba(127, 127, 127, 0.14);
+        }
+
+        #ThunderSubtitlePreviewPage .ts-candidate.ts-active {
+            background: rgba(82, 181, 75, 0.14);
+        }
+
+        #ThunderSubtitlePreviewPage .ts-candidate-main {
+            flex: 1 1 20rem;
+            min-width: 0;
+        }
+
+        #ThunderSubtitlePreviewPage .ts-candidate-name {
+            font-weight: 600;
+            word-break: break-all;
+        }
+
+        #ThunderSubtitlePreviewPage .ts-candidate-meta {
+            color: var(--theme-secondary-color, #999);
+            font-size: 0.9em;
+            margin-top: 0.15rem;
+        }
+
+        #ThunderSubtitlePreviewPage .ts-candidate-actions {
+            display: flex;
+            gap: 0.4rem;
+            flex: 0 0 auto;
+        }
+
+        #ThunderSubtitlePreviewPage .ts-tag {
+            display: inline-block;
+            padding: 0 0.4em;
+            margin-left: 0.35em;
+            border-radius: 0.2em;
+            font-size: 0.85em;
+            background: rgba(127, 127, 127, 0.25);
+        }
+
+        #ThunderSubtitlePreviewPage .ts-tag.ts-tag-good {
+            background: rgba(58, 166, 85, 0.28);
+        }
+
+        #ThunderSubtitlePreviewPage .ts-tag.ts-tag-bad {
+            background: rgba(204, 59, 59, 0.28);
+        }
+
+        #ThunderSubtitlePreviewPage .ts-file {
+            max-height: 55vh;
+            overflow: auto;
+            padding: 0.75rem 1rem;
+            border: 1px solid rgba(127, 127, 127, 0.25);
+            border-radius: 0.3em;
+            background: rgba(0, 0, 0, 0.18);
+            font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+            font-size: 0.92em;
+            line-height: 1.5;
+            white-space: pre-wrap;
+            word-break: break-word;
+        }
+    </style>
+</head>
+<body>
+<div id="ThunderSubtitlePreviewPage" data-role="page" class="page type-interior pluginConfigurationPage"
+     data-require="emby-input,emby-button">
+    <div data-role="content">
+        <div class="content-primary">
+            <div class="ts-section">
+                <div class="sectionTitleContainer flex align-items-center">
+                    <h2 class="sectionTitle">迅雷字幕 · 全文预览</h2>
+                </div>
+                <p class="fieldDescription">
+                    搜索后可以在这里把每一份候选字幕<strong>完整读一遍</strong>，再决定用哪一份。
+                    字幕只留在服务器的内存里，<strong>不会写进影片文件夹</strong>；
+                    点「写入这部影片」才会落盘，并立刻清空这部片子的预览缓存。
+                </p>
+
+                <div class="ts-row">
+                    <div class="inputContainer">
+                        <label class="inputLabel inputLabelUnfocused" for="CodeInput">影片番号</label>
+                        <input is="emby-input" id="CodeInput" type="text" placeholder="ABF-363" />
+                    </div>
+                    <button is="emby-button" type="button" id="SearchBtn" class="raised button-submit">
+                        <span>搜索候选</span>
+                    </button>
+                    <button is="emby-button" type="button" id="ClearBtn" class="raised">
+                        <span>清空缓存</span>
+                    </button>
+                </div>
+
+                <div id="PreviewStatus" class="ts-status" style="display: none;"></div>
+            </div>
+
+            <div class="ts-section" id="ItemSection" style="display: none;">
+                <div class="sectionTitleContainer flex align-items-center">
+                    <h3 class="sectionTitle">写入到哪部影片</h3>
+                </div>
+                <div id="ItemList"></div>
+                <div class="fieldDescription">
+                    多部影片用同一个番号时，选中的那部才会被写入。
+                </div>
+            </div>
+
+            <div class="ts-section" id="CandidateSection" style="display: none;">
+                <div class="sectionTitleContainer flex align-items-center">
+                    <h3 class="sectionTitle">候选字幕</h3>
+                </div>
+                <div id="CandidateList"></div>
+            </div>
+
+            <div class="ts-section" id="TextSection" style="display: none; border-bottom: none;">
+                <div class="sectionTitleContainer flex align-items-center">
+                    <h3 class="sectionTitle" id="TextTitle">全文</h3>
+                </div>
+                <pre id="FileText" class="ts-file"></pre>
+            </div>
+        </div>
+    </div>
+
+    <script type="text/javascript">
+        (function () {
+            var page;
+            var state = {
+                key: null,
+                code: '',
+                items: [],
+                candidates: [],
+                selectedItemId: null,
+                activeIndex: 0
+            };
+
+            function byId(id) {
+                return page.querySelector('#' + id);
+            }
+
+            function setStatus(message, bad) {
+                var box = byId('PreviewStatus');
+                box.textContent = message || '';
+                box.className = bad ? 'ts-status ts-status-bad' : 'ts-status';
+                box.style.display = message ? '' : 'none';
+            }
+
+            function apiUrl(path, params) {
+                return ApiClient.getUrl('ThunderSubtitle/' + path, params);
+            }
+
+            function authHeaders() {
+                return { 'Authorization': 'MediaBrowser Token="' + ApiClient.accessToken() + '"' };
+            }
+
+            function readJson(response) {
+                return response.json().catch(function () {
+                    return {};
+                }).then(function (body) {
+                    if (!response.ok) {
+                        throw new Error((body && body.error) || ('HTTP ' + response.status));
+                    }
+
+                    return body;
+                });
+            }
+
+            function getJson(path, params) {
+                return fetch(apiUrl(path, params), {
+                    credentials: 'same-origin',
+                    headers: authHeaders()
+                }).then(readJson);
+            }
+
+            function postJson(path, params) {
+                return fetch(apiUrl(path, params), {
+                    method: 'POST',
+                    credentials: 'same-origin',
+                    headers: authHeaders()
+                }).then(readJson);
+            }
+
+            function getText(path, params) {
+                return fetch(apiUrl(path, params), {
+                    credentials: 'same-origin',
+                    headers: authHeaders()
+                }).then(function (response) {
+                    if (!response.ok) {
+                        throw new Error('HTTP ' + response.status);
+                    }
+
+                    return response.text();
+                });
+            }
+
+            function formatBytes(bytes) {
+                if (!bytes) {
+                    return '0 B';
+                }
+
+                return bytes >= 1024 ? (bytes / 1024).toFixed(1) + ' KB' : bytes + ' B';
+            }
+
+            function el(tag, className, text) {
+                var node = document.createElement(tag);
+                if (className) {
+                    node.className = className;
+                }
+
+                if (text != null) {
+                    node.textContent = text;
+                }
+
+                return node;
+            }
+
+            function renderItems() {
+                var box = byId('ItemList');
+                box.innerHTML = '';
+                byId('ItemSection').style.display = '';
+
+                if (!state.items.length) {
+                    box.appendChild(el('div', 'fieldDescription',
+                        '没有在「目标影视库」里找到这个番号的影片。请先在插件设置里选择影视库，或从影片页面打开本页。'));
+                    return;
+                }
+
+                state.items.forEach(function (item) {
+                    var label = el('label', 'emby-checkbox-label');
+                    label.style.display = 'block';
+                    label.style.padding = '0.25rem 0';
+
+                    var input = document.createElement('input');
+                    input.type = 'radio';
+                    input.name = 'ThunderPreviewItem';
+                    input.setAttribute('is', 'emby-radio');
+                    input.value = item.id;
+                    input.checked = item.id === state.selectedItemId;
+                    input.addEventListener('change', function () {
+                        state.selectedItemId = item.id;
+                        renderCandidates();
+                    });
+
+                    label.appendChild(input);
+
+                    var text = el('span', null, item.name || item.path || item.id);
+                    label.appendChild(text);
+
+                    if (item.subtitles && item.subtitles.length) {
+                        label.appendChild(el('span', 'ts-tag', '现有字幕 ' + item.subtitles.length + ' 份'));
+                    }
+
+                    box.appendChild(label);
+                });
+            }
+
+            function renderCandidates() {
+                var box = byId('CandidateList');
+                box.innerHTML = '';
+                byId('CandidateSection').style.display = state.candidates.length ? '' : 'none';
+
+                state.candidates.forEach(function (candidate) {
+                    var row = el('div', 'ts-candidate' + (candidate.index === state.activeIndex ? ' ts-active' : ''));
+
+                    var main = el('div', 'ts-candidate-main');
+                    var name = el('div', 'ts-candidate-name', candidate.index + '. ' + candidate.name);
+
+                    if (candidate.judged) {
+                        var tag = el('span', 'ts-tag ' + (candidate.machine ? 'ts-tag-bad' : 'ts-tag-good'),
+                            'AI ' + candidate.ai + ' 分');
+                        name.appendChild(tag);
+                    }
+
+                    if (candidate.machine && !candidate.judged) {
+                        name.appendChild(el('span', 'ts-tag ts-tag-bad', '机翻标记'));
+                    }
+
+                    main.appendChild(name);
+                    main.appendChild(el('div', 'ts-candidate-meta',
+                        candidate.language + ' · ' + candidate.chars + ' 字 / ' + candidate.cues + ' 条 · '
+                        + formatBytes(candidate.bytes) + ' · ' + candidate.extension
+                        + (candidate.aiReason ? ' · ' + candidate.aiReason : '')));
+
+                    var actions = el('div', 'ts-candidate-actions');
+
+                    var previewButton = document.createElement('button');
+                    previewButton.setAttribute('is', 'emby-button');
+                    previewButton.type = 'button';
+                    previewButton.className = 'raised';
+                    previewButton.appendChild(el('span', null, '预览全文'));
+                    previewButton.addEventListener('click', function () {
+                        showText(candidate);
+                    });
+
+                    var applyButton = document.createElement('button');
+                    applyButton.setAttribute('is', 'emby-button');
+                    applyButton.type = 'button';
+                    applyButton.className = 'raised button-submit';
+                    applyButton.appendChild(el('span', null, '写入这部影片'));
+                    applyButton.addEventListener('click', function () {
+                        apply(candidate, applyButton);
+                    });
+
+                    actions.appendChild(previewButton);
+                    actions.appendChild(applyButton);
+                    row.appendChild(main);
+                    row.appendChild(actions);
+                    box.appendChild(row);
+                });
+            }
+
+            function showText(candidate) {
+                state.activeIndex = candidate.index;
+                renderCandidates();
+                byId('TextTitle').textContent = '全文 · ' + candidate.name;
+                byId('FileText').textContent = '读取中…';
+                byId('TextSection').style.display = '';
+
+                getText('Text', { key: state.key, index: candidate.index }).then(function (text) {
+                    byId('FileText').textContent = text;
+                }, function (error) {
+                    byId('FileText').textContent = '';
+                    setStatus('读取失败：' + error.message, true);
+                });
+            }
+
+            function apply(candidate, button) {
+                if (!state.selectedItemId) {
+                    setStatus('请先在「写入到哪部影片」里选一部影片。', true);
+                    return;
+                }
+
+                button.setAttribute('disabled', 'disabled');
+                setStatus('正在写入…');
+
+                postJson('Apply', {
+                    key: state.key,
+                    index: candidate.index,
+                    itemId: state.selectedItemId
+                }).then(function (result) {
+                    setStatus('已写入「' + (result.fileName || result.file) + '」'
+                        + '（' + formatBytes(result.bytes) + '），这部影片的预览缓存已清空（' + result.purged + ' 份）。'
+                        + '\n需要再比较，请重新搜索。');
+                    state.key = null;
+                    state.candidates = [];
+                    state.activeIndex = 0;
+                    byId('CandidateList').innerHTML = '';
+                    byId('CandidateSection').style.display = 'none';
+                    byId('FileText').textContent = '';
+                    byId('TextSection').style.display = 'none';
+                }, function (error) {
+                    setStatus('写入失败：' + error.message, true);
+                }).then(function () {
+                    button.removeAttribute('disabled');
+                });
+            }
+
+            function clearCache() {
+                if (!state.key) {
+                    setStatus('当前没有需要清理的预览缓存。');
+                    return;
+                }
+
+                postJson('Clear', { key: state.key }).then(function (result) {
+                    setStatus('已清空这部片子的预览缓存（' + result.purged + ' 份，服务器上还剩 ' + result.remaining + ' 份）。');
+                    state.key = null;
+                    state.candidates = [];
+                    byId('CandidateList').innerHTML = '';
+                    byId('CandidateSection').style.display = 'none';
+                    byId('FileText').textContent = '';
+                    byId('TextSection').style.display = 'none';
+                }, function (error) {
+                    setStatus('清理失败：' + error.message, true);
+                });
+            }
+
+            function search() {
+                var code = byId('CodeInput').value.trim();
+                if (!code) {
+                    setStatus('请先填影片番号。', true);
+                    return;
+                }
+
+                var button = byId('SearchBtn');
+                button.setAttribute('disabled', 'disabled');
+                setStatus('搜索中…（会下载全部候选并可能调用 AI，通常 5~25 秒）');
+                byId('CandidateSection').style.display = 'none';
+                byId('TextSection').style.display = 'none';
+
+                getJson('Search', { code: code }).then(function (result) {
+                    state.key = result.key;
+                    state.code = result.code;
+                    state.candidates = result.candidates || [];
+                    state.activeIndex = 0;
+
+                    if (result.itemId) {
+                        state.selectedItemId = result.itemId;
+                    }
+
+                    state.items = result.items || [];
+                    if (!state.selectedItemId && state.items.length === 1) {
+                        state.selectedItemId = state.items[0].id;
+                    }
+
+                    renderItems();
+                    renderCandidates();
+                    byId('CodeInput').value = result.code;
+
+                    if (!state.candidates.length) {
+                        setStatus(result.notice || '没有可用候选。', true);
+                        return;
+                    }
+
+                    setStatus('找到 ' + state.candidates.length + ' 份候选（搜索耗时 ' + result.searchSeconds
+                        + ' 秒）。点「预览全文」可以读完整文件，不会有任何文件写进影片文件夹。');
+                }, function (error) {
+                    setStatus('搜索失败：' + error.message, true);
+                }).then(function () {
+                    button.removeAttribute('disabled');
+                });
+            }
+
+            function urlParams() {
+                var hash = window.location.hash || '';
+                var index = hash.indexOf('?');
+                return new URLSearchParams(index >= 0 ? hash.substring(index + 1) : '');
+            }
+
+            document.querySelector('#ThunderSubtitlePreviewPage').addEventListener('pageshow', function () {
+                page = this;
+
+                byId('SearchBtn').addEventListener('click', search);
+                byId('ClearBtn').addEventListener('click', clearCache);
+                byId('CodeInput').addEventListener('keydown', function (event) {
+                    if (event.key === 'Enter') {
+                        search();
+                    }
+                });
+
+                var params = urlParams();
+                var code = params.get('code');
+                if (code) {
+                    byId('CodeInput').value = code;
+                    search();
+                }
+            });
+        })();
+    </script>
+</div>
+</body>
+</html>

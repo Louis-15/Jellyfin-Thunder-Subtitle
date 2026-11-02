@@ -23,6 +23,10 @@ public sealed class PluginServiceRegistrator : IPluginServiceRegistrator
         services.AddSingleton<ISubtitleFinder, SubtitleFinder>();
         services.AddSingleton<SubtitleJob>();
 
+        // Preview page: keeps the last searches in memory and writes only when the user picks.
+        services.AddSingleton<PreviewCache>();
+        services.AddSingleton<ISubtitleWriter, SubtitleWriter>();
+
         // Jellyfin picks this up through GetExports<ISubtitleProvider>, which fills the
         // per-item "修改字幕 -> 搜索字幕" dialog.
         services.AddSingleton<MediaBrowser.Controller.Subtitles.ISubtitleProvider, Providers.ThunderSubtitleProvider>();

@@ -7,9 +7,9 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <RootNamespace>Jellyfin.Plugin.ThunderSubtitle</RootNamespace>
     <AssemblyName>Jellyfin.Plugin.ThunderSubtitle</AssemblyName>
-    <Version>1.6.0.0</Version>
-    <AssemblyVersion>1.6.0.0</AssemblyVersion>
-    <FileVersion>1.6.0.0</FileVersion>
+    <Version>1.7.0.0</Version>
+    <AssemblyVersion>1.7.0.0</AssemblyVersion>
+    <FileVersion>1.7.0.0</FileVersion>
     <Company>Jellyfin-Thunder-Subtitle</Company>
     <Authors>Jellyfin-Thunder-Subtitle</Authors>
     <Description>Downloads subtitles from the Xunlei (迅雷) subtitle API for JAV media.</Description>
@@ -38,6 +38,15 @@
   <ItemGroup>
     <!-- Client assets live inside the dll, exactly like Jellyfin's own plugins. -->
     <EmbeddedResource Include="Web\**\*.html" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!--
+      The preview page talks to an API controller shipped in this assembly. Jellyfin adds
+      plugin assemblies to the MVC application parts, but the MVC types only exist through
+      the ASP.NET Core shared framework, which is aligned with the server's own copy.
+    -->
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
   </ItemGroup>
 
   <ItemGroup>

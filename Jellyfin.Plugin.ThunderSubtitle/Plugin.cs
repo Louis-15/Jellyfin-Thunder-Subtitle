@@ -53,6 +53,16 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
             {
                 Name = "thundersubtitle",
                 EmbeddedResourcePath = GetType().Namespace + ".Web.configPage.html"
+            },
+            new PluginPageInfo
+            {
+                // Listed in the dashboard drawer, because Jellyfin's own subtitle dialog is
+                // closed source on the client side and cannot host a preview button.
+                Name = "thundersubtitlepreview",
+                DisplayName = "字幕全文预览",
+                MenuIcon = "subtitles",
+                EnableInMainMenu = true,
+                EmbeddedResourcePath = GetType().Namespace + ".Web.previewPage.html"
             }
         ];
     }
