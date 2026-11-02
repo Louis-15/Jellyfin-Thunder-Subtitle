@@ -1,0 +1,33 @@
+Microsoft Visual Studio Solution File, Format Version 12.00
+# Visual Studio Version 17
+VisualStudioVersion = 17.0.31903.59
+MinimumVisualStudioVersion = 10.0.40219.1
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "Jellyfin.Plugin.ThunderSubtitle", "Jellyfin.Plugin.ThunderSubtitle\Jellyfin.Plugin.ThunderSubtitle.csproj", "{3D6B2E1A-9C4F-4E27-8A31-5B7E0C8D1F42}"
+EndProject
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "Jellyfin.Plugin.ThunderSubtitle.Tests", "tests\Jellyfin.Plugin.ThunderSubtitle.Tests\Jellyfin.Plugin.ThunderSubtitle.Tests.csproj", "{8E1F4C62-2B7D-4A93-9F58-6C0D3B6E5A17}"
+EndProject
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "SubtitleProbe", "tools\SubtitleProbe\SubtitleProbe.csproj", "{5A2C9E73-4D18-4C6B-B0E9-7F31A2D8C604}"
+EndProject
+Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug|Any CPU = Debug|Any CPU
+		Release|Any CPU = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{3D6B2E1A-9C4F-4E27-8A31-5B7E0C8D1F42}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{3D6B2E1A-9C4F-4E27-8A31-5B7E0C8D1F42}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{3D6B2E1A-9C4F-4E27-8A31-5B7E0C8D1F42}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{3D6B2E1A-9C4F-4E27-8A31-5B7E0C8D1F42}.Release|Any CPU.Build.0 = Release|Any CPU
+		{8E1F4C62-2B7D-4A93-9F58-6C0D3B6E5A17}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{8E1F4C62-2B7D-4A93-9F58-6C0D3B6E5A17}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{8E1F4C62-2B7D-4A93-9F58-6C0D3B6E5A17}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{8E1F4C62-2B7D-4A93-9F58-6C0D3B6E5A17}.Release|Any CPU.Build.0 = Release|Any CPU
+		{5A2C9E73-4D18-4C6B-B0E9-7F31A2D8C604}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{5A2C9E73-4D18-4C6B-B0E9-7F31A2D8C604}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{5A2C9E73-4D18-4C6B-B0E9-7F31A2D8C604}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{5A2C9E73-4D18-4C6B-B0E9-7F31A2D8C604}.Release|Any CPU.Build.0 = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(SolutionProperties) = preSolution
+		HideSolutionNode = FALSE
+	EndGlobalSection
+EndGlobal

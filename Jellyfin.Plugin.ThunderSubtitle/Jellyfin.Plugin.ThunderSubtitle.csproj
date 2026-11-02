@@ -1,0 +1,47 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <LangVersion>latest</LangVersion>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <RootNamespace>Jellyfin.Plugin.ThunderSubtitle</RootNamespace>
+    <AssemblyName>Jellyfin.Plugin.ThunderSubtitle</AssemblyName>
+    <Version>1.0.0.0</Version>
+    <AssemblyVersion>1.0.0.0</AssemblyVersion>
+    <FileVersion>1.0.0.0</FileVersion>
+    <Company>Jellyfin-Thunder-Subtitle</Company>
+    <Authors>Jellyfin-Thunder-Subtitle</Authors>
+    <Description>Downloads subtitles from the Xunlei (迅雷) subtitle API for JAV media.</Description>
+    <TreatWarningsAsErrors>false</TreatWarningsAsErrors>
+    <GenerateDocumentationFile>false</GenerateDocumentationFile>
+    <EnableNETAnalyzers>false</EnableNETAnalyzers>
+    <!--
+      Never copy referenced Jellyfin/ASP.NET assemblies next to the plugin dll.
+      Jellyfin loads every dll it finds in the plugin folder into a separate
+      PluginLoadContext, so a private copy would give the framework types a
+      second identity and DI would silently fail to match them.
+    -->
+    <CopyLocalLockFileAssemblies>false</CopyLocalLockFileAssemblies>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Jellyfin.Controller" Version="12.2.0">
+      <ExcludeAssets>runtime</ExcludeAssets>
+    </PackageReference>
+    <!--
+      GB18030/Big5/Shift-JIS decoding uses System.Text.Encoding.CodePages, which is part
+      of the Microsoft.NETCore.App shared framework; no extra package or dll is shipped.
+    -->
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- Client assets live inside the dll, exactly like Jellyfin's own plugins. -->
+    <EmbeddedResource Include="Web\**\*.html" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="Jellyfin.Plugin.ThunderSubtitle.Tests" />
+  </ItemGroup>
+
+</Project>

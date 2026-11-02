@@ -1,0 +1,21 @@
+[
+  {
+    "guid": "e4b2d7a1-9c3f-4f86-8d15-2a7b9e6c1f03",
+    "name": "Thunder Subtitle",
+    "description": "为 JAV 影片从迅雷字幕 API 自动下载外挂字幕：按番号搜索、过滤机翻、择优写入 <片名>.chi.srt/.ass，并提供「重新择优」任务。",
+    "overview": "为 JAV 影片从迅雷字幕 API 自动下载高质量外挂字幕。",
+    "owner": "Louis-15",
+    "category": "Subtitles",
+    "imageUrl": "https://raw.githubusercontent.com/Louis-15/Jellyfin-Thunder-Subtitle/main/logo.png",
+    "versions": [
+      {
+        "version": "1.0.0.0",
+        "changelog": "首个版本：每 6 小时扫描目标影视库中完全没有字幕的影片，按番号从迅雷字幕搜索，下载全部候选后去重、排除机翻与番号不符的候选，按体积择优写入 <片名>.chi.srt/.ass 并刷新条目；另提供「重新择优」任务升级已有 .chi 字幕。支持 UTF-8/BOM/GB18030/Big5/Shift-JIS 编码识别，只接受 srt/ass/ssa/vtt。",
+        "targetAbi": "12.2.0.0",
+        "sourceUrl": "https://github.com/Louis-15/Jellyfin-Thunder-Subtitle/releases/download/v1.0.0.0/thunder-subtitle_1.0.0.0.zip",
+        "checksum": "CHECKSUM_PLACEHOLDER",
+        "timestamp": "2026-11-02T13:05:00Z"
+      }
+    ]
+  }
+]
