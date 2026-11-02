@@ -28,6 +28,8 @@ Jellyfin 12.2 插件：为 AV 影视库中**完全没有字幕**的影片，按�
    它体积更大，纯按体积排序会把别人的字幕写进来），再按「名字里带本番号 > 无番号的哈希名」、
    **机翻标记数升序**、**体积降序**排序（接口的 `score` / `fingerprintf_score` 恒为 0，不可用）。
 7. 写入 `<片名>.chi.<ext>`（先写临时文件再原子替换），并删掉旧的其它扩展名 `.chi.*`，避免同一影片出现两份字幕。
+   已有 `.chi.*` 时只有真正变好才替换：机翻标记变少直接换；否则要求体积比现有大 `max(1 KB, 5%)`，
+   避免「多了一个注释、多条换行」的重复上传来回覆盖。
 8. 刷新条目：`MetadataRefreshMode.ValidationOnly` + `ImageRefreshMode.None`。
    重新探测本地文件、挂上外挂字幕，但**不会**触发库设置里的 `SubtitleDownloadLanguages`，因此不会产生 `.chi.0.srt`。
 9. 在插件数据目录记录来源（`<data>/thunder-subtitle/provenance.json`），供「重新择优」判断现有字幕是机翻还是人工。
@@ -71,6 +73,19 @@ dotnet run --project tools\SubtitleProbe -c Release -- ABF-363 MIUM-1457 FSDSS-2
 
 ## 安装
 
+### 方式 A：通过插件仓库（可在 Jellyfin 内检查和更新）
+
+控制台 → 插件 → 仓库 → 添加：
+
+```
+https://raw.githubusercontent.com/Louis-15/Jellyfin-Thunder-Subtitle/main/manifest.json
+```
+
+然后在「目录」里搜索 **Thunder Subtitle** 安装。之后插件页面会出现更新提示，
+「更新」即可升级到新版本，不需要再手工传文件。
+
+### 方式 B：手工安装
+
 ```bash
 # 宿主机
 VERSION=1.0.0.0
@@ -86,6 +101,16 @@ docker logs --tail 200 jellyfin 2>&1 | grep -i "Thunder Subtitle"
 
 插件目录里必须是 `Jellyfin.Plugin.ThunderSubtitle.dll` + `meta.json` + `logo.png`，不要再放 Jellyfin 自身的 dll
 （项目已设置 `CopyLocalLockFileAssemblies=false`）。
+
+## 发布新版本
+
+```powershell
+.\release.ps1 -Version 1.0.1.0 -Changelog "修复 xxx"
+```
+
+脚本会同步 csproj / meta.json / manifest.json 的版本号、提交并推 `v1.0.1.0` 标签；
+GitHub Actions 随后编译、跑测试、打包、把**本次产物的 MD5** 写回 `manifest.json` 并提交，
+最后发布 Release。这样 Jellyfin 下载的 zip 与 manifest 里的 checksum 永远一致。
 
 ## 配置
 
