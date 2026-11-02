@@ -17,7 +17,7 @@ public class PluginConfiguration : BasePluginConfiguration
     public string[] LibraryIds { get; set; } = Array.Empty<string>();
 
     /// <summary>Gets or sets how many movies a single run may process.</summary>
-    public int MaxItemsPerRun { get; set; } = 20;
+    public int MaxItemsPerRun { get; set; } = 5;
 
     /// <summary>Gets or sets how many candidates are downloaded per movie.</summary>
     public int MaxCandidates { get; set; } = 25;
@@ -120,9 +120,7 @@ public class PluginConfiguration : BasePluginConfiguration
     /// <summary>Clamps values that a hand-edited config file could have broken.</summary>
     public void Normalize()
     {
-        if (MaxItemsPerRun <= 0)
-        {
-            MaxItemsPerRun = 20;
+        $15;
         }
 
         if (MaxCandidates <= 0)

@@ -320,7 +320,7 @@
                 return ApiClient.getPluginConfiguration(PluginId).then(function (cfg) {
                     byId('Enabled').checked = cfg.Enabled !== false;
                     byId('AllowOverwritePluginSubtitle').checked = cfg.AllowOverwritePluginSubtitle === true;
-                    byId('MaxItemsPerRun').value = cfg.MaxItemsPerRun || 20;
+                    byId('MaxItemsPerRun').value = cfg.MaxItemsPerRun || 5;
                     byId('MaxCandidates').value = cfg.MaxCandidates || 25;
                     byId('RequestIntervalMs').value = cfg.RequestIntervalMs != null ? cfg.RequestIntervalMs : 500;
                     byId('DownloadConcurrency').value = cfg.DownloadConcurrency || 4;
@@ -385,7 +385,7 @@
                     cfg.LibraryIds = selectedLibraryIds();
 
                     var maxItems = parseInt(byId('MaxItemsPerRun').value, 10);
-                    cfg.MaxItemsPerRun = isNaN(maxItems) || maxItems < 1 ? 20 : maxItems;
+                    cfg.MaxItemsPerRun = isNaN(maxItems) || maxItems < 1 ? 5 : maxItems;
 
                     var maxCandidates = parseInt(byId('MaxCandidates').value, 10);
                     cfg.MaxCandidates = isNaN(maxCandidates) || maxCandidates < 1 ? 25 : maxCandidates;
