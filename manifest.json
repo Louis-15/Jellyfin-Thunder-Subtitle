@@ -1,21 +1,32 @@
-[
-  {
-    "guid": "e4b2d7a1-9c3f-4f86-8d15-2a7b9e6c1f03",
-    "name": "Thunder Subtitle",
-    "description": "为 JAV 影片从迅雷字幕 API 自动下载外挂字幕：按番号搜索、过滤机翻、择优写入 <片名>.chi.srt/.ass，并提供「重新择优」任务。",
-    "overview": "为 JAV 影片从迅雷字幕 API 自动下载高质量外挂字幕。",
-    "owner": "Louis-15",
-    "category": "Subtitles",
-    "imageUrl": "https://raw.githubusercontent.com/Louis-15/Jellyfin-Thunder-Subtitle/main/logo.png",
-    "versions": [
-      {
-        "version": "1.0.0.0",
-        "changelog": "Release 1.0.0.0",
-        "targetAbi": "12.2.0.0",
-        "sourceUrl": "https://github.com/Louis-15/Jellyfin-Thunder-Subtitle/releases/download/v1.0.0.0/thunder-subtitle_1.0.0.0.zip",
-        "checksum": "acee7bc22a3b44f666b857fefabd189b",
-        "timestamp": "2026-11-02T13:59:03Z"
-      }
-    ]
-  }
-]
+{
+    "value":  [
+                  {
+                      "guid":  "e4b2d7a1-9c3f-4f86-8d15-2a7b9e6c1f03",
+                      "name":  "Thunder Subtitle",
+                      "description":  "为 JAV 影片从迅雷字幕 API 自动下载外挂字幕：按番号搜索、过滤机翻、择优写入 \u003c片名\u003e.chi.srt/.ass，并提供「重新择优」任务。",
+                      "overview":  "为 JAV 影片从迅雷字幕 API 自动下载高质量外挂字幕。",
+                      "owner":  "Louis-15",
+                      "category":  "Subtitles",
+                      "imageUrl":  "https://raw.githubusercontent.com/Louis-15/Jellyfin-Thunder-Subtitle/main/logo.png",
+                      "versions":  [
+                                       {
+                                           "version":  "1.0.0.1",
+                                           "changelog":  "配置页底部补充插件仓库地址与项目链接，方便在 Jellyfin 内重新添加仓库或检查更新。",
+                                           "targetAbi":  "12.2.0.0",
+                                           "sourceUrl":  "https://github.com/Louis-15/Jellyfin-Thunder-Subtitle/releases/download/v1.0.0.1/thunder-subtitle_1.0.0.1.zip",
+                                           "checksum":  "",
+                                           "timestamp":  "2026-11-02T14:09:33Z"
+                                       },
+                                       {
+                                           "version":  "1.0.0.0",
+                                           "changelog":  "Release 1.0.0.0",
+                                           "targetAbi":  "12.2.0.0",
+                                           "sourceUrl":  "https://github.com/Louis-15/Jellyfin-Thunder-Subtitle/releases/download/v1.0.0.0/thunder-subtitle_1.0.0.0.zip",
+                                           "checksum":  "acee7bc22a3b44f666b857fefabd189b",
+                                           "timestamp":  "2026-11-02T13:59:03Z"
+                                       }
+                                   ]
+                  }
+              ],
+    "Count":  1
+}

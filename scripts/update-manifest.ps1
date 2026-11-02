@@ -37,9 +37,12 @@ if (-not $ManifestPath) {
 }
 
 $manifestPath = [System.IO.Path]::GetFullPath($ManifestPath)
+$manifest = ConvertFrom-Json -InputObject ([System.IO.File]::ReadAllText($manifestPath))
 
-# @() keeps a single-entry manifest an array: Jellyfin reads the file as a list of plugins.
-$manifest = @([System.IO.File]::ReadAllText($manifestPath) | ConvertFrom-Json)
+# Jellyfin reads the file as a list of plugins, so a single entry still needs to be an array.
+if ($manifest -isnot [System.Array]) {
+    $manifest = @($manifest)
+}
 
 $timestamp = (Get-Date).ToUniversalTime().ToString('yyyy-MM-ddTHH:mm:ssZ')
 $entry = [pscustomobject]@{

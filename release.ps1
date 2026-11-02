@@ -1,4 +1,4 @@
-#requires -Version 5.1
+﻿#requires -Version 5.1
 <#
 .SYNOPSIS
     Cuts a new release: bumps the version everywhere, commits, tags and pushes.
@@ -40,12 +40,15 @@ $text = [regex]::Replace($text, '<FileVersion>[^<]+</FileVersion>', "<FileVersio
 $metaPath = Join-Path $root 'meta.json'
 $meta = [System.IO.File]::ReadAllText($metaPath) | ConvertFrom-Json
 $meta.version = $Version
-[System.IO.File]::WriteAllText($metaPath, ($meta | ConvertTo-Json -Depth 5) + "`n", $utf8)
+[System.IO.File]::WriteAllText($metaPath, (ConvertTo-Json -InputObject $meta -Depth 5) + "`n", $utf8)
 
 # manifest.json: keep the entry list, only move the version so the workflow can fill
 # in the checksum of the artefact it builds.
 $manifestPath = Join-Path $root 'manifest.json'
-$manifest = [System.IO.File]::ReadAllText($manifestPath) | ConvertFrom-Json
+$manifest = ConvertFrom-Json -InputObject ([System.IO.File]::ReadAllText($manifestPath))
+if ($manifest -isnot [System.Array]) {
+    $manifest = @($manifest)
+}
 $existing = $manifest[0].versions | Where-Object { $_.version -eq $Version }
 if (-not $existing) {
     $manifest[0].versions = @([pscustomobject]@{
@@ -57,7 +60,7 @@ if (-not $existing) {
         timestamp = (Get-Date).ToUniversalTime().ToString('yyyy-MM-ddTHH:mm:ssZ')
     }) + @($manifest[0].versions)
 }
-[System.IO.File]::WriteAllText($manifestPath, ($manifest | ConvertTo-Json -Depth 8) + "`n", $utf8)
+[System.IO.File]::WriteAllText($manifestPath, (ConvertTo-Json -InputObject $manifest -Depth 8) + "`n", $utf8)
 
 Write-Host "==> 提交并打标签 v$Version" -ForegroundColor Cyan
 git -C $root add -A
