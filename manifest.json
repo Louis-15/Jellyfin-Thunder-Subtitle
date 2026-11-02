@@ -9,12 +9,12 @@
     "imageUrl": "https://raw.githubusercontent.com/Louis-15/Jellyfin-Thunder-Subtitle/main/logo.png",
     "versions": [
       {
-        "version": "1.8.0.0",
-        "changelog": "Release 1.8.0.0\n\n预览按钮改为插在 Jellyfin 字幕弹窗的下载按钮旁（IStartupFilter 请求时注入脚本，不写磁盘）；预览读全文到弹窗，仅内存缓存；AI 评分与评语另起一行；去掉预览行数设置",
+        "version": "1.8.1.0",
+        "changelog": "Release 1.8.1.0\n\n修复预览按钮不出现：浏览器带 If-None-Match 时 Jellyfin 回 304，旧的未注入 index.html 一直被沿用（现在强制 200 重写）；预览脚本增加 API 地址/令牌兜底与定时补扫",
         "targetAbi": "12.2.0.0",
-        "sourceUrl": "https://github.com/Louis-15/Jellyfin-Thunder-Subtitle/releases/download/v1.8.0.0/thunder-subtitle_1.8.0.0.zip",
-        "checksum": "9f8dfa9b7c9001b481494ae7427af51a",
-        "timestamp": "2026-11-02T18:28:49Z"
+        "sourceUrl": "https://github.com/Louis-15/Jellyfin-Thunder-Subtitle/releases/download/v1.8.1.0/thunder-subtitle_1.8.1.0.zip",
+        "checksum": "2ddd50a3a31cdbbf51681230aee77009",
+        "timestamp": "2026-11-02T18:40:03Z"
       }
     ]
   }
