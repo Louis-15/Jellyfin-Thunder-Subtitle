@@ -9,12 +9,12 @@
     "imageUrl": "https://raw.githubusercontent.com/Louis-15/Jellyfin-Thunder-Subtitle/main/logo.png",
     "versions": [
       {
-        "version": "1.4.0.0",
-        "changelog": "Release 1.4.0.0\n\nAI 评审新增供应商选择：内置 Open Code 与自定义（OpenAI 兼容）。Open Code 内置 Base URL https://opencode.ai/inference/go/openai/v1，并按官方要求自动附带稳定的 x-opencode-session 请求头（值为本次运行 GUID + 条目 ID）；自定义供应商不发送该头。",
+        "version": "1.5.0.0",
+        "changelog": "Release 1.5.0.0\n\n新增 Jellyfin 字幕提供者：单部影片右键「修改字幕 → 搜索字幕」即可列出迅雷候选并挑选下载，不必等定时任务。搜索/下载/语言过滤/排序/ AI 评审与定时任务共用同一套逻辑；手动下载由 Jellyfin 自己写成 <片名>.chi.<ext>。候选说明里显示简繁、字数、条数、体积与 AI 评分。",
         "targetAbi": "12.2.0.0",
-        "sourceUrl": "https://github.com/Louis-15/Jellyfin-Thunder-Subtitle/releases/download/v1.4.0.0/thunder-subtitle_1.4.0.0.zip",
-        "checksum": "2d0a8625527e2ea916d1be57593a0f61",
-        "timestamp": "2026-11-02T16:25:58Z"
+        "sourceUrl": "https://github.com/Louis-15/Jellyfin-Thunder-Subtitle/releases/download/v1.5.0.0/thunder-subtitle_1.5.0.0.zip",
+        "checksum": "5cf4cb84a8264a429f27b0860aea71bf",
+        "timestamp": "2026-11-02T16:45:09Z"
       }
     ]
   }
