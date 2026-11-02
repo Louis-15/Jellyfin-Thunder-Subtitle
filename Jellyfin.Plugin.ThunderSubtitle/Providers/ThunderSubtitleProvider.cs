@@ -92,14 +92,14 @@ public sealed class ThunderSubtitleProvider : ISubtitleProvider
 
         return outcome.Ranked
             .Where(pick => pick.Uri is not null)
-            .Select((pick, index) => ToInfo(pick, index + 1, outcome.Verdicts))
+            .Select((pick, index) => ToInfo(pick, index + 1, outcome.Verdicts, request.MediaPath))
             .ToArray();
     }
 
     /// <inheritdoc />
     public async Task<SubtitleResponse> GetSubtitles(string id, CancellationToken cancellationToken)
     {
-        if (!SubtitleId.TryDecode(id, out var uri, out var name) || uri is null)
+        if (!SubtitleId.TryDecode(id, out var uri, out var name, out var mediaPath) || uri is null)
         {
             throw new ArgumentException("无法识别的字幕标识。", nameof(id));
         }
@@ -117,6 +117,8 @@ public sealed class ThunderSubtitleProvider : ISubtitleProvider
                         ?? throw new InvalidOperationException("下载到的内容不是受支持的字幕格式。");
 
         _log.Info($"手动下载：{name}（{decoded.EncodingName} → utf-8）。");
+
+        RemoveOldSubtitles(mediaPath);
 
         return new SubtitleResponse
         {
@@ -174,7 +176,41 @@ public sealed class ThunderSubtitleProvider : ISubtitleProvider
 
     private static string Show(string? value) => string.IsNullOrWhiteSpace(value) ? "(空)" : value;
 
-    private static RemoteSubtitleInfo ToInfo(SubtitlePick pick, int rank, IReadOnlyDictionary<int, AiVerdict>? verdicts)
+    /// <summary>
+    /// Deletes the Chinese subtitles already sitting next to the video, so Jellyfin writes the
+    /// freshly picked one under the canonical name instead of adding <c>.0</c>, <c>.1</c>, ...
+    /// </summary>
+    /// <param name="mediaPath">Path of the video.</param>
+    private void RemoveOldSubtitles(string mediaPath)
+    {
+        if (string.IsNullOrWhiteSpace(mediaPath))
+        {
+            return;
+        }
+
+        foreach (var file in SubtitleFiles.FindChinese(mediaPath))
+        {
+            try
+            {
+                File.Delete(file);
+                _log.Info($"手动下载：已移除旧字幕 {Path.GetFileName(file)}。");
+            }
+            catch (IOException ex)
+            {
+                _log.Warn($"手动下载：旧字幕 {Path.GetFileName(file)} 删不掉（{ex.Message}），Jellyfin 会另存一个新文件。");
+            }
+            catch (UnauthorizedAccessException ex)
+            {
+                _log.Warn($"手动下载：旧字幕 {Path.GetFileName(file)} 删不掉（{ex.Message}），Jellyfin 会另存一个新文件。");
+            }
+        }
+    }
+
+    private static RemoteSubtitleInfo ToInfo(
+        SubtitlePick pick,
+        int rank,
+        IReadOnlyDictionary<int, AiVerdict>? verdicts,
+        string? mediaPath)
     {
         var language = pick.Language == SubtitleLanguage.TraditionalChinese ? "繁体" : "简体";
         var size = pick.Bytes >= 1024
@@ -199,7 +235,7 @@ public sealed class ThunderSubtitleProvider : ISubtitleProvider
 
         return new RemoteSubtitleInfo
         {
-            Id = SubtitleId.Encode(pick.Uri!, pick.Extension, pick.CandidateName),
+            Id = SubtitleId.Encode(pick.Uri!, pick.Extension, pick.CandidateName, mediaPath),
             ProviderName = DisplayName,
             Name = $"{rank}. {pick.CandidateName}",
             Format = pick.Extension.TrimStart('.'),
@@ -224,10 +260,11 @@ public static class SubtitleId
     /// <param name="uri">Download URI.</param>
     /// <param name="extension">Content extension, with or without the dot.</param>
     /// <param name="name">Candidate name, used to re-detect the format.</param>
+    /// <param name="mediaPath">Path of the video, so the download can replace the old files.</param>
     /// <returns>A URL-safe id.</returns>
-    public static string Encode(Uri uri, string extension, string name)
+    public static string Encode(Uri uri, string extension, string name, string? mediaPath)
     {
-        var payload = string.Join('|', uri.AbsoluteUri, SubtitleText.NormalizeExtension(extension), name);
+        var payload = string.Join('|', uri.AbsoluteUri, SubtitleText.NormalizeExtension(extension), name, mediaPath ?? string.Empty);
         return Convert.ToBase64String(Encoding.UTF8.GetBytes(payload))
             .TrimEnd('=')
             .Replace('+', '-')
@@ -238,11 +275,13 @@ public static class SubtitleId
     /// <param name="id">The id.</param>
     /// <param name="uri">The download URI.</param>
     /// <param name="name">The candidate name, or an empty string.</param>
+    /// <param name="mediaPath">The video path, or an empty string.</param>
     /// <returns><c>true</c> when the id is well formed.</returns>
-    public static bool TryDecode(string id, out Uri? uri, out string name)
+    public static bool TryDecode(string id, out Uri? uri, out string name, out string mediaPath)
     {
         uri = null;
         name = string.Empty;
+        mediaPath = string.Empty;
 
         if (string.IsNullOrWhiteSpace(id))
         {
@@ -262,7 +301,7 @@ public static class SubtitleId
             return false;
         }
 
-        var parts = payload.Split('|', 3);
+        var parts = payload.Split('|', 4);
         if (parts.Length < 3 || !Uri.TryCreate(parts[0], UriKind.Absolute, out var parsed))
         {
             return false;
@@ -270,6 +309,7 @@ public static class SubtitleId
 
         uri = parsed;
         name = parts[2];
+        mediaPath = parts.Length > 3 ? parts[3] : string.Empty;
         return true;
     }
 }

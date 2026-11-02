@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
@@ -166,15 +167,26 @@ public class ThunderSubtitleProviderTests
     public void SubtitleIdRoundTrips()
     {
         var uri = new Uri("https://subtitle.v.geilijiasu.com/DF/60/DF60BCC7.srt");
-        var id = SubtitleId.Encode(uri, ".srt", "ABF-363.海南鸡字幕.srt");
+        var id = SubtitleId.Encode(uri, ".srt", "ABF-363.海南鸡字幕.srt", "/media/strm/日本大姐姐/ABF-363.strm");
 
-        Assert.True(SubtitleId.TryDecode(id, out var decoded, out var name));
+        Assert.True(SubtitleId.TryDecode(id, out var decoded, out var name, out var mediaPath));
         Assert.Equal(uri, decoded);
         Assert.Equal("ABF-363.海南鸡字幕.srt", name);
+        Assert.Equal("/media/strm/日本大姐姐/ABF-363.strm", mediaPath);
 
         // Jellyfin splits "<providerId>_<ourId>" with a limit of 2, so underscores are safe.
         Assert.DoesNotContain("+", id);
         Assert.DoesNotContain("/", id);
+    }
+
+    [Fact]
+    public void SubtitleIdToleratesAMissingMediaPath()
+    {
+        var uri = new Uri("https://subtitle.v.geilijiasu.com/DF/60/DF60BCC7.srt");
+        var id = SubtitleId.Encode(uri, ".srt", "ABF-363.srt", null);
+
+        Assert.True(SubtitleId.TryDecode(id, out _, out _, out var mediaPath));
+        Assert.Equal(string.Empty, mediaPath);
     }
 
     [Theory]
@@ -183,15 +195,58 @@ public class ThunderSubtitleProviderTests
     [InlineData("YWJj")] // "abc", no separators
     public void SubtitleIdRejectsGarbage(string id)
     {
-        Assert.False(SubtitleId.TryDecode(id, out _, out _));
+        Assert.False(SubtitleId.TryDecode(id, out _, out _, out _));
     }
 
     [Fact]
     public async Task GetSubtitlesRejectsAForeignHost()
     {
         var provider = Create(new FakeFinder());
-        var id = SubtitleId.Encode(new Uri("https://evil.example.com/x.srt"), ".srt", "x.srt");
+        var id = SubtitleId.Encode(new Uri("https://evil.example.com/x.srt"), ".srt", "x.srt", null);
 
         await Assert.ThrowsAsync<ArgumentException>(() => provider.GetSubtitles(id, CancellationToken.None));
+    }
+
+    [Fact]
+    public void SubtitleFilesFindEveryChineseVariant()
+    {
+        var dir = Path.Combine(Path.GetTempPath(), "thunder-subs-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(dir);
+        try
+        {
+            var media = Path.Combine(dir, "ABF-363.strm");
+            File.WriteAllText(media, "http://example.com/x.mp4");
+
+            var expected = new[]
+            {
+                Path.Combine(dir, "ABF-363.chi.srt"),
+                Path.Combine(dir, "ABF-363.chi.ass"),
+                Path.Combine(dir, "ABF-363.chi.0.srt"),
+                Path.Combine(dir, "ABF-363.zh-CN.vtt")
+            };
+            foreach (var path in expected)
+            {
+                File.WriteAllText(path, "x");
+            }
+
+            foreach (var other in new[]
+            {
+                Path.Combine(dir, "ABF-363.en.srt"),
+                Path.Combine(dir, "ABF-363.china.srt"),
+                Path.Combine(dir, "OTHER-001.chi.srt")
+            })
+            {
+                File.WriteAllText(other, "x");
+            }
+
+            var found = SubtitleFiles.FindChinese(media);
+
+            Assert.Equal(expected.Length, found.Count);
+            Assert.All(expected, path => Assert.Contains(path, found));
+        }
+        finally
+        {
+            Directory.Delete(dir, recursive: true);
+        }
     }
 }
