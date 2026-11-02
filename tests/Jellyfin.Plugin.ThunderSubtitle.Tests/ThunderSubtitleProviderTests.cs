@@ -99,11 +99,24 @@ public class ThunderSubtitleProviderTests
     [InlineData("zh-CN", true)]
     [InlineData("chi", true)]
     [InlineData("zho", true)]
+    [InlineData("und", true)]
+    [InlineData("iv", true)]
     [InlineData("Japanese", false)]
     [InlineData("English", false)]
     public void LanguageGate(string language, bool expected)
     {
         Assert.Equal(expected, ThunderSubtitleProvider.IsChineseRequested(Request(language)));
+    }
+
+    [Fact]
+    public void UndeterminedTwoLetterHintFallsBackToLanguageName()
+    {
+        var request = Request("zh-CN");
+        request.TwoLetterISOLanguageName = "iv";
+        Assert.True(ThunderSubtitleProvider.IsChineseRequested(request));
+
+        request.Language = "English";
+        Assert.False(ThunderSubtitleProvider.IsChineseRequested(request));
     }
 
     [Fact]

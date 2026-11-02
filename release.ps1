@@ -49,6 +49,9 @@ $meta.version = $Version
 # builds, so nothing to do here.
 
 Write-Host "==> 提交并打标签 v$Version" -ForegroundColor Cyan
+# git writes progress and CRLF warnings to stderr; with ErrorActionPreference=Stop that
+# would abort the script, so relax it here and rely on $LASTEXITCODE instead.
+$ErrorActionPreference = 'Continue'
 git -C $root add -A
 git -C $root commit -m "Release $Version" -m $Changelog
 if ($LASTEXITCODE -ne 0) { throw 'git commit 失败（是否没有改动？）' }

@@ -55,15 +55,21 @@ public sealed class ThunderSubtitleProvider : ISubtitleProvider
         SubtitleSearchRequest request,
         CancellationToken cancellationToken)
     {
+        _log.Info(
+            $"手动搜索请求：Name=「{request.Name}」，MediaPath=「{request.MediaPath}」，"
+            + $"Language={Show(request.Language)}，TwoLetter={Show(request.TwoLetterISOLanguageName)}，"
+            + $"ContentType={request.ContentType}。");
+
         if (!IsChineseRequested(request))
         {
+            _log.Info($"跳过：请求的语言不是中文（Language={Show(request.Language)}，TwoLetter={Show(request.TwoLetterISOLanguageName)}）。");
             return Array.Empty<RemoteSubtitleInfo>();
         }
 
         var code = JavCode.FromPath(request.MediaPath) ?? JavCode.FromText(request.Name);
         if (code is null)
         {
-            _log.Debug($"手动搜索：无法从「{request.Name ?? request.MediaPath}」识别番号。");
+            _log.Info($"手动搜索：无法从「{request.Name ?? request.MediaPath}」识别番号。");
             return Array.Empty<RemoteSubtitleInfo>();
         }
 
@@ -133,25 +139,40 @@ public sealed class ThunderSubtitleProvider : ISubtitleProvider
     /// <returns><c>true</c> when Chinese was requested.</returns>
     public static bool IsChineseRequested(SubtitleSearchRequest request)
     {
-        if (!string.IsNullOrWhiteSpace(request.TwoLetterISOLanguageName))
+        var twoLetter = request.TwoLetterISOLanguageName?.Trim().ToLowerInvariant();
+        if (!string.IsNullOrEmpty(twoLetter) && !IsUndetermined(twoLetter))
         {
-            return string.Equals(request.TwoLetterISOLanguageName, "zh", StringComparison.OrdinalIgnoreCase);
+            return LooksChinese(twoLetter);
         }
 
-        var language = request.Language;
-        if (string.IsNullOrWhiteSpace(language))
+        var language = request.Language?.Trim().ToLowerInvariant();
+        if (string.IsNullOrEmpty(language) || IsUndetermined(language))
         {
+            // Jellyfin resolves the route language to a culture; when that fails the request
+            // carries "und"/"iv"/nothing at all. Treat that as "let the caller decide" instead
+            // of silently showing an empty list.
             return true;
         }
 
-        var normalized = language.Trim().ToLowerInvariant();
-        return normalized.StartsWith("zh", StringComparison.Ordinal)
-               || normalized.StartsWith("chi", StringComparison.Ordinal)
-               || normalized.StartsWith("zho", StringComparison.Ordinal)
-               || normalized.StartsWith("cmn", StringComparison.Ordinal)
-               || normalized.Contains("chinese", StringComparison.Ordinal)
-               || normalized.Contains("中文", StringComparison.Ordinal);
+        return LooksChinese(language);
     }
+
+    private static bool LooksChinese(string language)
+    {
+        return language.StartsWith("zh", StringComparison.Ordinal)
+               || language.StartsWith("chi", StringComparison.Ordinal)
+               || language.StartsWith("zho", StringComparison.Ordinal)
+               || language.StartsWith("cmn", StringComparison.Ordinal)
+               || language.Contains("chinese", StringComparison.Ordinal)
+               || language.Contains("中文", StringComparison.Ordinal);
+    }
+
+    private static bool IsUndetermined(string language)
+    {
+        return language is "iv" or "und" or "unk" or "mul" or "mis" or "zxx" or "none" or "neutral";
+    }
+
+    private static string Show(string? value) => string.IsNullOrWhiteSpace(value) ? "(空)" : value;
 
     private static RemoteSubtitleInfo ToInfo(SubtitlePick pick, int rank, IReadOnlyDictionary<int, AiVerdict>? verdicts)
     {
