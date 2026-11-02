@@ -12,15 +12,20 @@ public sealed record SubtitlePick
     /// <param name="extension">The whitelisted extension that matches the content.</param>
     /// <param name="text">The subtitle text.</param>
     /// <param name="encodingName">The encoding it was decoded from.</param>
-    public SubtitlePick(string candidateName, string extension, string text, string encodingName)
+    /// <param name="uri">Where the file came from, used to download it again by id.</param>
+    public SubtitlePick(string candidateName, string extension, string text, string encodingName, Uri? uri = null)
     {
         CandidateName = candidateName;
         Extension = extension;
         Text = text;
         EncodingName = encodingName;
+        Uri = uri;
         Stats = SubtitleContent.Measure(text, extension);
         Language = SubtitleLanguageDetector.Detect(SubtitleContent.StripMarkup(text));
     }
+
+    /// <summary>Gets the source URI, when the pick came from the API.</summary>
+    public Uri? Uri { get; }
 
     /// <summary>Gets the name the API reported, shown in the log.</summary>
     public string CandidateName { get; }

@@ -20,7 +20,12 @@ public sealed class PluginServiceRegistrator : IPluginServiceRegistrator
         services.AddSingleton<ThunderClient>();
         services.AddSingleton<ProvenanceStore>();
         services.AddSingleton<AiSubtitleJudge>();
+        services.AddSingleton<ISubtitleFinder, SubtitleFinder>();
         services.AddSingleton<SubtitleJob>();
+
+        // Jellyfin picks this up through GetExports<ISubtitleProvider>, which fills the
+        // per-item "修改字幕 -> 搜索字幕" dialog.
+        services.AddSingleton<MediaBrowser.Controller.Subtitles.ISubtitleProvider, Providers.ThunderSubtitleProvider>();
 
         // Jellyfin instantiates every IScheduledTask implementation through DI at startup,
         // so registering the concrete types is enough for the tasks to show up.
