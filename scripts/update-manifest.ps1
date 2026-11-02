@@ -1,15 +1,20 @@
 ﻿#requires -Version 5.1
 <#
 .SYNOPSIS
-    Rewrites manifest.json with the version, checksum and download URL of a release.
+    Regenerates manifest.json for a release.
 
 .DESCRIPTION
     Jellyfin validates a plugin download against the checksum in the repository manifest,
-    so the published zip and the manifest must be written from the same build. The release
-    workflow calls this after packaging; it can also be run by hand.
+    so the published zip and the manifest must come from the same build. The release
+    workflow calls this after packaging.
+
+    The file is written from meta.json plus the arguments instead of being patched in
+    place: Windows PowerShell 5.1 and PowerShell 7 disagree on how ConvertFrom-Json
+    flattens a single-element array, and getting that wrong silently turns the plugin
+    list into an object Jellyfin cannot read.
 
 .PARAMETER Version
-    The plugin version, e.g. 1.0.0.0.
+    The plugin version, e.g. 1.0.0.1.
 
 .PARAMETER Checksum
     MD5 of the release zip (lowercase hex).
@@ -18,7 +23,10 @@
     Download URL of the release zip.
 
 .PARAMETER Changelog
-    Optional changelog line shown in the Jellyfin plugin catalog.
+    Text shown in the Jellyfin plugin catalog. Defaults to a link to the release page.
+
+.PARAMETER Repository
+    GitHub repository (owner/name) used for the logo URL.
 #>
 [CmdletBinding()]
 param(
@@ -26,38 +34,44 @@ param(
     [Parameter(Mandatory = $true)][string]$Checksum,
     [Parameter(Mandatory = $true)][string]$SourceUrl,
     [string]$Changelog,
-    [string]$ManifestPath
+    [string]$Repository = 'Louis-15/Jellyfin-Thunder-Subtitle'
 )
 
 $ErrorActionPreference = 'Stop'
 
-# $PSScriptRoot is not populated while parameter defaults are evaluated on PowerShell 5.1.
-if (-not $ManifestPath) {
-    $ManifestPath = Join-Path (Split-Path -Parent $PSCommandPath) '..\manifest.json'
+$root = Split-Path -Parent $PSCommandPath
+$metaPath = Join-Path $root '..\meta.json'
+$manifestPath = [System.IO.Path]::GetFullPath((Join-Path $root '..\manifest.json'))
+
+# meta.json is a plain object, so it parses the same way on PowerShell 5.1 and 7.
+$meta = ConvertFrom-Json -InputObject ([System.IO.File]::ReadAllText($metaPath))
+
+if (-not $Changelog) {
+    $Changelog = "See https://github.com/$Repository/releases/tag/v$Version"
 }
 
-$manifestPath = [System.IO.Path]::GetFullPath($ManifestPath)
-$manifest = ConvertFrom-Json -InputObject ([System.IO.File]::ReadAllText($manifestPath))
-
-# Jellyfin reads the file as a list of plugins, so a single entry still needs to be an array.
-if ($manifest -isnot [System.Array]) {
-    $manifest = @($manifest)
-}
-
-$timestamp = (Get-Date).ToUniversalTime().ToString('yyyy-MM-ddTHH:mm:ssZ')
 $entry = [pscustomobject]@{
     version   = $Version
-    changelog = if ($Changelog) { $Changelog } else { "Release $Version" }
-    targetAbi = $manifest[0].versions[0].targetAbi
+    changelog = $Changelog.Trim()
+    targetAbi = $meta.targetAbi
     sourceUrl = $SourceUrl
     checksum  = $Checksum.ToLowerInvariant()
-    timestamp = $timestamp
+    timestamp = (Get-Date).ToUniversalTime().ToString('yyyy-MM-ddTHH:mm:ssZ')
 }
 
-# Keep older versions listed so someone on an older server build can still install them.
-$versions = @($entry) + @($manifest[0].versions | Where-Object { $_.version -ne $Version })
-$manifest[0].versions = $versions
+$manifest = @(
+    [pscustomobject]@{
+        guid        = $meta.guid
+        name        = $meta.name
+        description = $meta.description
+        overview    = $meta.overview
+        owner       = $meta.owner
+        category    = $meta.category
+        imageUrl    = "https://raw.githubusercontent.com/$Repository/main/logo.png"
+        versions    = @($entry)
+    }
+)
 
-$json = ConvertTo-Json -InputObject $manifest -Depth 8
+$json = ConvertTo-Json -InputObject $manifest -Depth 6
 [System.IO.File]::WriteAllText($manifestPath, $json + "`n", (New-Object System.Text.UTF8Encoding($false)))
 Write-Host "manifest.json -> $Version ($($entry.checksum))"
