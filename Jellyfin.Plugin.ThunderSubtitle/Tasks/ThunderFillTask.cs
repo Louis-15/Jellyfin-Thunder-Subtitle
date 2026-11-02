@@ -8,7 +8,7 @@ namespace Jellyfin.Plugin.ThunderSubtitle.Tasks;
 
 /// <summary>
 /// Finds movies in the configured libraries that have no subtitle at all, searches the
-/// Xunlei API by their JAV code and writes the best candidate next to the video file.
+/// Xunlei API by their release code and writes the best candidate next to the video file.
 /// </summary>
 public sealed class ThunderFillTask : IScheduledTask
 {

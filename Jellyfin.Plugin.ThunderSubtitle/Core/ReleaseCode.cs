@@ -6,11 +6,11 @@ using System.Text.RegularExpressions;
 namespace Jellyfin.Plugin.ThunderSubtitle.Core;
 
 /// <summary>
-/// Extracts the JAV code (番号) from a file name, e.g.
+/// Extracts the release code (番号) from a file name, e.g.
 /// <c>ABF-363-U.strm</c> or <c>[ThZu.Cc]SSIS-706-C.4K.strm</c> both reduce to a code the
 /// Xunlei API understands (<c>ABF-363</c>, <c>SSIS-706</c>).
 /// </summary>
-public static class JavCode
+public static class ReleaseCode
 {
     // Codes with a non standard shape: FC2-PPV-1234567, HEYZO-1234.
     private static readonly Regex SpecialCode = new(

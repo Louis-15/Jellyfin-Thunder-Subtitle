@@ -3,7 +3,7 @@ using Xunit;
 
 namespace Jellyfin.Plugin.ThunderSubtitle.Tests;
 
-public class JavCodeTests
+public class ReleaseCodeTests
 {
     [Theory]
     [InlineData("ABF-363-U.strm", "ABF-363")]
@@ -20,7 +20,7 @@ public class JavCodeTests
     [InlineData("ABF-363-U", "ABF-363")]
     public void ExtractsCode(string fileName, string expected)
     {
-        Assert.Equal(expected, JavCode.FromText(Path.GetFileNameWithoutExtension(fileName)));
+        Assert.Equal(expected, ReleaseCode.FromText(Path.GetFileNameWithoutExtension(fileName)));
     }
 
     [Theory]
@@ -30,7 +30,7 @@ public class JavCodeTests
     [InlineData("FC2-PPV-0012345", "FC2-PPV-12345")]
     public void BuildsComparisonKey(string code, string expected)
     {
-        Assert.Equal(expected, JavCode.CompareKey(code));
+        Assert.Equal(expected, ReleaseCode.CompareKey(code));
     }
 
     [Theory]
@@ -40,7 +40,7 @@ public class JavCodeTests
     [InlineData("SSIS-706", null)]
     public void OffersTheOtherSpelling(string code, string? expected)
     {
-        Assert.Equal(expected, JavCode.AlternativeSpelling(code));
+        Assert.Equal(expected, ReleaseCode.AlternativeSpelling(code));
     }
 
     [Theory]
@@ -50,12 +50,12 @@ public class JavCodeTests
     [InlineData(null)]
     public void ReturnsNullWhenNoCode(string? text)
     {
-        Assert.Null(JavCode.FromText(text));
+        Assert.Null(ReleaseCode.FromText(text));
     }
 
     [Fact]
     public void NormalizesFullWidthCharacters()
     {
-        Assert.Equal("ABF-363", JavCode.FromText("ＡＢＦ－３６３"));
+        Assert.Equal("ABF-363", ReleaseCode.FromText("ＡＢＦ－３６３"));
     }
 }

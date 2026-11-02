@@ -8,7 +8,7 @@ using MediaBrowser.Model.Serialization;
 namespace Jellyfin.Plugin.ThunderSubtitle;
 
 /// <summary>
-/// Xunlei (迅雷) subtitle plugin: finds JAV movies without subtitles and writes
+/// Xunlei (迅雷) subtitle plugin: finds code-named movies without subtitles and writes
 /// <c>&lt;name&gt;.chi.srt</c>/<c>.ass</c> next to the media file.
 /// </summary>
 public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
@@ -33,7 +33,7 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
 
     /// <inheritdoc />
     public override string Description =>
-        "为 JAV 影片从迅雷字幕 API 自动下载外挂字幕（按番号搜索，过滤机翻，择优写入 .chi.srt/.ass）。";
+        "为按番号命名的影片从迅雷字幕 API 自动下载外挂字幕（按番号搜索，过滤机翻，择优写入 .chi.srt/.ass）。";
 
     /// <inheritdoc />
     public override Guid Id => PluginId;

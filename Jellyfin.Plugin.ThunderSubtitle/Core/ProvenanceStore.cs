@@ -8,7 +8,7 @@ namespace Jellyfin.Plugin.ThunderSubtitle.Core;
 
 /// <summary>What the plugin knows about a subtitle it wrote.</summary>
 /// <param name="ItemId">Jellyfin item id.</param>
-/// <param name="Code">The JAV code the subtitle was searched with.</param>
+/// <param name="Code">The release code the subtitle was searched with.</param>
 /// <param name="File">Full path of the sidecar.</param>
 /// <param name="CandidateName">The name the API reported.</param>
 /// <param name="Bytes">Size written.</param>

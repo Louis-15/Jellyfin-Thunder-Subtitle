@@ -181,15 +181,15 @@ public static class SubtitleRanker
         string? requestedCode = null,
         SubtitleLanguage preferred = SubtitleLanguage.SimplifiedChinese)
     {
-        var key = requestedCode is null ? null : JavCode.CompareKey(requestedCode);
+        var key = requestedCode is null ? null : ReleaseCode.CompareKey(requestedCode);
         var seen = new HashSet<string>(StringComparer.Ordinal);
 
         return candidates
             .Where(candidate => seen.Add(candidate.Hash))
-            .Select(candidate => (Pick: candidate, Code: JavCode.FromText(candidate.CandidateName)))
+            .Select(candidate => (Pick: candidate, Code: ReleaseCode.FromText(candidate.CandidateName)))
             .Where(entry => key is null
                             || entry.Code is null
-                            || string.Equals(JavCode.CompareKey(entry.Code), key, StringComparison.OrdinalIgnoreCase))
+                            || string.Equals(ReleaseCode.CompareKey(entry.Code), key, StringComparison.OrdinalIgnoreCase))
 
             // A name that carries the code proves the release; a hash name does not.
             .OrderBy(entry => entry.Code is null ? 1 : 0)
@@ -259,9 +259,9 @@ public static class SubtitleRanker
     /// <returns><c>true</c> when the candidate may be used.</returns>
     public static bool IsCodeOrUnknown(string? candidateName, string requestedCode)
     {
-        var code = JavCode.FromText(candidateName);
+        var code = ReleaseCode.FromText(candidateName);
         return code is null
-               || string.Equals(JavCode.CompareKey(code), JavCode.CompareKey(requestedCode), StringComparison.OrdinalIgnoreCase);
+               || string.Equals(ReleaseCode.CompareKey(code), ReleaseCode.CompareKey(requestedCode), StringComparison.OrdinalIgnoreCase);
     }
 
     /// <summary>True when the name carries exactly the requested code.</summary>
@@ -270,8 +270,8 @@ public static class SubtitleRanker
     /// <returns><c>true</c> when the codes match.</returns>
     public static bool HasCode(string? candidateName, string requestedCode)
     {
-        return JavCode.FromText(candidateName) is { } code
-               && string.Equals(JavCode.CompareKey(code), JavCode.CompareKey(requestedCode), StringComparison.OrdinalIgnoreCase);
+        return ReleaseCode.FromText(candidateName) is { } code
+               && string.Equals(ReleaseCode.CompareKey(code), ReleaseCode.CompareKey(requestedCode), StringComparison.OrdinalIgnoreCase);
     }
 
     /// <summary>

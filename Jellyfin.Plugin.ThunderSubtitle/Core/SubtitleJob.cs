@@ -253,7 +253,7 @@ public sealed class SubtitleJob
     private async Task<ProcessResult> ProcessAsync(BaseItem item, PluginConfiguration config, bool repick, CancellationToken cancellationToken)
     {
         var mediaPath = item.Path!;
-        var code = JavCode.FromPath(mediaPath) ?? JavCode.FromText(item.Name);
+        var code = ReleaseCode.FromPath(mediaPath) ?? ReleaseCode.FromText(item.Name);
         if (code is null)
         {
             _log.Debug($"{Display(item)}：无法从文件名识别番号，跳过。");

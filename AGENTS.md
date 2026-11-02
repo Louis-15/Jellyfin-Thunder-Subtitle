@@ -7,7 +7,7 @@
 
 ## 1. 这是什么
 
-一个 **Jellyfin 12.2 插件**：为 JAV 影片按番号（如 `ABF-363`）从**迅雷字幕 API** 自动搜索并下载外挂中文字幕，
+一个 **Jellyfin 12.2 插件**：为按番号命名的影片（如 `ABF-363`）从**迅雷字幕 API** 自动搜索并下载外挂中文字幕，
 写成 `<片名>.chi.srt` / `<片名>.chi.ass` 放在视频（`.strm`）旁边。
 
 除自动下载外，插件还把自己注册成 Jellyfin 的**字幕提供者**，所以单部影片可以在
@@ -101,7 +101,7 @@ global.json                    SDK 版本锚点
 | `SubtitleLanguage.cs` | 简/繁/日/韩/英判定 | 繁简对 + 假名占比 |
 | `Sidecar.cs` | 字幕文件路径与原子写 | `FindPluginSubtitles`、`TargetPath`、`WriteAtomicAsync` |
 | `SubtitleFiles.cs` | 查/删 `<片名>.chi\|zh*.<ext>` | 避免 Jellyfin 生成 `.chi.0.srt` |
-| `JavCode.cs` | 从文件名提取番号 | `CompareKey`（去前导零）、`AlternativeSpelling` |
+| `ReleaseCode.cs` | 从文件名提取番号 | `CompareKey`（去前导零）、`AlternativeSpelling` |
 | `AiSubtitleJudge.cs` | OpenAI 兼容的 AI 评审 | prompt 构造、JSON 解析、失败返回 `null` |
 | `ProvenanceStore.cs` | 记录"这份字幕是我写的、机翻标记几个" | `<data>/thunder-subtitle/provenance.json` |
 | `PreviewTextCache.cs` | 预览全文的内存缓存 | 30 分钟过期、最多 24 份、**从不落盘** |

@@ -2,8 +2,8 @@
   {
     "guid": "e4b2d7a1-9c3f-4f86-8d15-2a7b9e6c1f03",
     "name": "Thunder Subtitle",
-    "description": "Scheduled task that finds movies in the selected libraries that have no subtitles at all, extracts the JAV code from the file name (ABF-363-U.strm -> ABF-363), queries the Xunlei subtitle API, downloads every candidate, drops machine-translated ones, picks the largest remaining file and writes it next to the .strm as <name>.chi.srt/.ass so Jellyfin picks it up as an external subtitle. A second task re-picks better subtitles for files this plugin wrote earlier.",
-    "overview": "为 JAV 影片从迅雷字幕 API 自动下载高质量外挂字幕。",
+    "description": "Scheduled task that finds movies in the selected libraries that have no subtitles at all, extracts the release code from the file name (ABF-363-U.strm -> ABF-363), queries the Xunlei subtitle API, downloads every candidate, drops machine-translated ones, picks the best remaining candidate by dialogue volume and writes it next to the .strm as <name>.chi.srt/.ass so Jellyfin picks it up as an external subtitle. A second task re-picks better subtitles for files this plugin wrote earlier.",
+    "overview": "为按番号命名的影片从迅雷字幕 API 自动下载高质量外挂字幕。",
     "owner": "Jellyfin-Thunder-Subtitle",
     "category": "Subtitles",
     "imageUrl": "https://raw.githubusercontent.com/Louis-15/Jellyfin-Thunder-Subtitle/main/logo.png",

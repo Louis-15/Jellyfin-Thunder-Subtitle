@@ -66,7 +66,7 @@ public sealed class ThunderSubtitleProvider : ISubtitleProvider
             return Array.Empty<RemoteSubtitleInfo>();
         }
 
-        var code = JavCode.FromPath(request.MediaPath) ?? JavCode.FromText(request.Name);
+        var code = ReleaseCode.FromPath(request.MediaPath) ?? ReleaseCode.FromText(request.Name);
         if (code is null)
         {
             _log.Info($"手动搜索：无法从「{request.Name ?? request.MediaPath}」识别番号。");
@@ -235,7 +235,7 @@ public sealed class ThunderSubtitleProvider : ISubtitleProvider
     /// as "no subtitles found", which hides the difference between "the API was empty" and
     /// "the release genuinely has none", and the user cannot tell it should be retried.
     /// </summary>
-    /// <param name="code">The JAV code that was searched.</param>
+    /// <param name="code">The release code that was searched.</param>
     /// <param name="outcome">What the pipeline produced.</param>
     /// <returns>The notice row. Its id cannot be downloaded.</returns>
     private static RemoteSubtitleInfo Notice(string code, FindOutcome outcome)

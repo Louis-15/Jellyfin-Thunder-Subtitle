@@ -61,7 +61,7 @@ public sealed record FindOutcome(
 /// <summary>Shared "search, download, judge" pipeline.</summary>
 public interface ISubtitleFinder
 {
-    /// <summary>Searches and ranks the candidates for a JAV code.</summary>
+    /// <summary>Searches and ranks the candidates for a release code.</summary>
     /// <param name="code">The code to search, e.g. <c>ABF-363</c>.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>The outcome, even when nothing usable was found.</returns>
@@ -252,7 +252,7 @@ public sealed class SubtitleFinder : ISubtitleFinder
             return candidates;
         }
 
-        var alternative = JavCode.AlternativeSpelling(code);
+        var alternative = ReleaseCode.AlternativeSpelling(code);
         if (alternative is null)
         {
             WarnIfEmpty(code, candidates);

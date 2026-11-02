@@ -43,7 +43,7 @@ var exitCode = 0;
 
 foreach (var raw in codes)
 {
-    var code = JavCode.FromText(raw) ?? raw;
+    var code = ReleaseCode.FromText(raw) ?? raw;
     Console.WriteLine($"=== {raw} -> {code}");
 
     IReadOnlyList<ThunderCandidate> candidates;
@@ -65,7 +65,7 @@ foreach (var raw in codes)
 
     Console.WriteLine($"    候选 {candidates.Count} 条");
 
-    var alternative = JavCode.AlternativeSpelling(code);
+    var alternative = ReleaseCode.AlternativeSpelling(code);
     if (alternative is not null && !candidates.Any(c => SubtitleRanker.HasCode(c.Name, code)))
     {
         Console.WriteLine($"    没有番号匹配的候选，改用 {alternative} 补查");

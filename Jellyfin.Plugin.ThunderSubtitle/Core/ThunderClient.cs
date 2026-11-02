@@ -122,7 +122,7 @@ public sealed class ThunderClient
     }
 
     /// <summary>
-    /// Searches the Xunlei API by JAV code. An empty answer is retried, because the endpoint
+    /// Searches the Xunlei API by release code. An empty answer is retried, because the endpoint
     /// returns one at random even for releases it does have.
     /// </summary>
     /// <param name="code">The code, e.g. <c>ABF-363</c>.</param>

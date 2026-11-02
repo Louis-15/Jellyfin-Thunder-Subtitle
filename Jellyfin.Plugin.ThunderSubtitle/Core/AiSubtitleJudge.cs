@@ -84,7 +84,7 @@ public sealed class AiSubtitleJudge
     }
 
     /// <summary>Judges a shortlist of candidates.</summary>
-    /// <param name="code">The JAV code, only used to give the model context.</param>
+    /// <param name="code">The release code, only used to give the model context.</param>
     /// <param name="shortlist">Candidates to compare, best-by-volume first.</param>
     /// <param name="settings">Endpoint settings.</param>
     /// <param name="preferred">The Chinese form the user prefers.</param>
@@ -184,7 +184,7 @@ public sealed class AiSubtitleJudge
     }
 
     /// <summary>Builds the chat completion body. Exposed for tests.</summary>
-    /// <param name="code">The JAV code.</param>
+    /// <param name="code">The release code.</param>
     /// <param name="shortlist">Candidates to compare.</param>
     /// <param name="settings">Endpoint settings.</param>
     /// <param name="preferred">The Chinese form the user prefers.</param>
@@ -290,7 +290,7 @@ public sealed class AiSubtitleJudge
     }
 
     private const string SystemPrompt =
-        "你是字幕质量审核员。用户给你同一部日本成人影片的若干份中文字幕候选，每份只抽取了部分对白。\n"
+        "你是字幕质量审核员。用户给你同一部影片的若干份中文字幕候选，每份只抽取了部分对白。\n"
         + "请判断每一份是【人工翻译】还是【机器翻译或自动语音识别转写】，并给出 0-100 的可用性评分（越高越可用）。\n"
         + "判断依据：\n"
         + "1. 人工翻译：中文口语自然、符合语境；人称代词前后一致；语气词、呻吟声处理得当（不会逐字硬译）；断句符合说话节奏；专有名词前后一致。\n"
