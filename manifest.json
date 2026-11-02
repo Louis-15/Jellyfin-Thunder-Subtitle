@@ -9,12 +9,12 @@
     "imageUrl": "https://raw.githubusercontent.com/Louis-15/Jellyfin-Thunder-Subtitle/main/logo.png",
     "versions": [
       {
-        "version": "1.8.2.0",
-        "changelog": "Release 1.8.2.0\n\n修复预览弹窗顶部显示 undefined：客户端字段名改为 cueCount/contentChars/encodingName",
+        "version": "1.8.3.0",
+        "changelog": "Release 1.8.3.0\n\n文档与文案去除敏感用词，统一改为 按番号命名的影片；内部类 JavCode 更名为 ReleaseCode；插件简介与 README 同步更新",
         "targetAbi": "12.2.0.0",
-        "sourceUrl": "https://github.com/Louis-15/Jellyfin-Thunder-Subtitle/releases/download/v1.8.2.0/thunder-subtitle_1.8.2.0.zip",
-        "checksum": "b31b4977daa664a907464624db73c841",
-        "timestamp": "2026-11-02T18:47:29Z"
+        "sourceUrl": "https://github.com/Louis-15/Jellyfin-Thunder-Subtitle/releases/download/v1.8.3.0/thunder-subtitle_1.8.3.0.zip",
+        "checksum": "5b87df93d1b495372ff99c936e67decb",
+        "timestamp": "2026-11-02T19:05:41Z"
       }
     ]
   }
