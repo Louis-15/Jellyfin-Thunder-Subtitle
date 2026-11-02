@@ -9,12 +9,12 @@
     "imageUrl": "https://raw.githubusercontent.com/Louis-15/Jellyfin-Thunder-Subtitle/main/logo.png",
     "versions": [
       {
-        "version": "1.3.1.0",
-        "changelog": "Release 1.3.1.0\n\n单次处理上限默认值从 20 改为 5：引入 AI 评审后每部影片要多一次模型调用，一次跑太多容易长尾；需要批量补历史时可在配置页临时调大。",
+        "version": "1.4.0.0",
+        "changelog": "Release 1.4.0.0\n\nAI 评审新增供应商选择：内置 Open Code 与自定义（OpenAI 兼容）。Open Code 内置 Base URL https://opencode.ai/inference/go/openai/v1，并按官方要求自动附带稳定的 x-opencode-session 请求头（值为本次运行 GUID + 条目 ID）；自定义供应商不发送该头。",
         "targetAbi": "12.2.0.0",
-        "sourceUrl": "https://github.com/Louis-15/Jellyfin-Thunder-Subtitle/releases/download/v1.3.1.0/thunder-subtitle_1.3.1.0.zip",
-        "checksum": "33735c0a223f30e7ced215b0a00becbe",
-        "timestamp": "2026-11-02T15:40:51Z"
+        "sourceUrl": "https://github.com/Louis-15/Jellyfin-Thunder-Subtitle/releases/download/v1.4.0.0/thunder-subtitle_1.4.0.0.zip",
+        "checksum": "2d0a8625527e2ea916d1be57593a0f61",
+        "timestamp": "2026-11-02T16:25:58Z"
       }
     ]
   }
