@@ -98,6 +98,13 @@ public class PluginConfiguration : BasePluginConfiguration
     /// <summary>Gets or sets the per-request timeout.</summary>
     public int AiTimeoutSeconds { get; set; } = 60;
 
+    /// <summary>
+    /// Gets or sets how many dialogue lines each search result shows as a preview. Jellyfin's
+    /// subtitle dialog only renders text, so this is the one way to read a candidate before
+    /// downloading it; 0 turns the preview off.
+    /// </summary>
+    public int PreviewLines { get; set; } = 6;
+
     /// <summary>Gets a value indicating whether the AI check has everything it needs.</summary>
     public bool IsAiUsable => AiEnabled
                               && !string.IsNullOrWhiteSpace(ApiRoot)
@@ -182,5 +189,6 @@ public class PluginConfiguration : BasePluginConfiguration
         AiSampleCues = Math.Clamp(AiSampleCues, 4, 80);
         AiMaxCharsPerCandidate = Math.Clamp(AiMaxCharsPerCandidate, 500, 20_000);
         AiTimeoutSeconds = Math.Clamp(AiTimeoutSeconds, 10, 300);
+        PreviewLines = Math.Clamp(PreviewLines, 0, 20);
     }
 }

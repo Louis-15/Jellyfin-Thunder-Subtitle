@@ -95,9 +95,10 @@ public sealed class ThunderSubtitleProvider : ISubtitleProvider
             return [Notice(code, outcome)];
         }
 
+        var previewLines = Plugin.Current.PreviewLines;
         return outcome.Ranked
             .Where(pick => pick.Uri is not null)
-            .Select((pick, index) => ToInfo(pick, index + 1, outcome.Verdicts, request.MediaPath))
+            .Select((pick, index) => ToInfo(pick, index + 1, outcome, previewLines, request.MediaPath))
             .ToArray();
     }
 
@@ -260,10 +261,112 @@ public sealed class ThunderSubtitleProvider : ISubtitleProvider
         };
     }
 
+    /// <summary>Longest single preview line, so one wall of text cannot dominate the list.</summary>
+    private const int MaxPreviewLineChars = 40;
+
+    /// <summary>Longest preview, in characters, for one candidate.</summary>
+    private const int MaxPreviewChars = 200;
+
+    /// <summary>
+    /// A few lines of dialogue from the middle of the file, shown under each search result so a
+    /// translation can be judged before it is downloaded. Jellyfin renders
+    /// <c>RemoteSubtitleInfo.Comment</c> with <c>white-space: pre-line</c> and escapes everything
+    /// else, so a preview is possible but only as plain text: the built-in dialog offers a plugin
+    /// no other channel.
+    /// </summary>
+    /// <param name="pick">The candidate to preview.</param>
+    /// <param name="lines">How many lines to show; 0 disables the preview.</param>
+    /// <returns>The preview text, empty when disabled or when nothing could be read.</returns>
+    internal static string BuildPreview(SubtitlePick pick, int lines)
+    {
+        if (lines <= 0)
+        {
+            return string.Empty;
+        }
+
+        var take = Math.Clamp(lines, 1, 20);
+        var cues = pick.Cues();
+        if (cues.Count == 0)
+        {
+            return string.Empty;
+        }
+
+        // Sample the middle half: the opening is usually credits and the tail is often sparse,
+        // while the middle is where continuous dialogue exposes a machine translation.
+        var from = cues.Count / 4;
+        var span = Math.Max(1, cues.Count - (from * 2));
+        var builder = new StringBuilder();
+        var chars = 0;
+        var lastIndex = -1;
+
+        for (var i = 0; i < take; i++)
+        {
+            var offset = take == 1 ? span / 2 : (int)Math.Round((double)i * (span - 1) / (take - 1));
+            var index = Math.Min(from + offset, cues.Count - 1);
+            if (index == lastIndex)
+            {
+                // Fewer cues than requested lines: show each line once instead of repeating it.
+                continue;
+            }
+
+            lastIndex = index;
+            var text = CollapseWhitespace(cues[index].Text);
+            if (text.Length == 0)
+            {
+                continue;
+            }
+
+            if (text.Length > MaxPreviewLineChars)
+            {
+                text = text[..MaxPreviewLineChars] + "…";
+            }
+
+            if (chars + text.Length > MaxPreviewChars)
+            {
+                break;
+            }
+
+            builder.Append("· ").Append(text).Append('\n');
+            chars += text.Length;
+        }
+
+        return builder.ToString().TrimEnd('\n');
+    }
+
+    private static string CollapseWhitespace(string? text)
+    {
+        if (string.IsNullOrEmpty(text))
+        {
+            return string.Empty;
+        }
+
+        var builder = new StringBuilder(text.Length);
+        var previousWasSpace = false;
+        foreach (var ch in text)
+        {
+            if (char.IsWhiteSpace(ch))
+            {
+                if (!previousWasSpace)
+                {
+                    builder.Append(' ');
+                    previousWasSpace = true;
+                }
+
+                continue;
+            }
+
+            builder.Append(ch);
+            previousWasSpace = false;
+        }
+
+        return builder.ToString().Trim();
+    }
+
     private static RemoteSubtitleInfo ToInfo(
         SubtitlePick pick,
         int rank,
-        IReadOnlyDictionary<int, AiVerdict>? verdicts,
+        FindOutcome outcome,
+        int previewLines,
         string? mediaPath)
     {
         var language = pick.Language == SubtitleLanguage.TraditionalChinese ? "繁体" : "简体";
@@ -275,7 +378,8 @@ public sealed class ThunderSubtitleProvider : ISubtitleProvider
         float? rating = null;
         bool? machine = pick.AiMarkers > 0 ? true : null;
 
-        if (verdicts is not null && verdicts.TryGetValue(rank, out var verdict))
+        var verdict = outcome.VerdictOf(pick);
+        if (verdict is not null)
         {
             comment += string.Create(CultureInfo.InvariantCulture, $" · AI {verdict.Score:F0} 分");
             if (!string.IsNullOrWhiteSpace(verdict.Reason))
@@ -285,6 +389,12 @@ public sealed class ThunderSubtitleProvider : ISubtitleProvider
 
             rating = (float)Math.Round(verdict.Score / 20.0, 2);
             machine = verdict.MachineTranslated;
+        }
+
+        var preview = BuildPreview(pick, previewLines);
+        if (preview.Length > 0)
+        {
+            comment += "\n" + preview;
         }
 
         return new RemoteSubtitleInfo

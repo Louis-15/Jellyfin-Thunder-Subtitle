@@ -31,6 +31,31 @@ public sealed record FindOutcome(
 
     /// <summary>Gets the shortlist that was sent to the AI, in ranking order.</summary>
     public IReadOnlyList<SubtitlePick> Shortlist { get; init; } = Array.Empty<SubtitlePick>();
+
+    /// <summary>
+    /// Gets the AI verdict for one candidate. Verdict ids index <see cref="Shortlist"/> in the
+    /// order it was sent, while <see cref="Ranked"/> is re-ordered by those very verdicts, so a
+    /// positional lookup would attach the wrong score to every row the AI moved.
+    /// </summary>
+    /// <param name="pick">The candidate to look up, matched by instance.</param>
+    /// <returns>The verdict, or <c>null</c> when the candidate was not judged.</returns>
+    public AiVerdict? VerdictOf(SubtitlePick pick)
+    {
+        if (Verdicts is null)
+        {
+            return null;
+        }
+
+        for (var index = 0; index < Shortlist.Count; index++)
+        {
+            if (ReferenceEquals(Shortlist[index], pick))
+            {
+                return Verdicts.TryGetValue(index + 1, out var verdict) ? verdict : null;
+            }
+        }
+
+        return null;
+    }
 }
 
 /// <summary>Shared "search, download, judge" pipeline.</summary>
@@ -155,7 +180,12 @@ public sealed class SubtitleFinder : ISubtitleFinder
             return outcome with { Shortlist = ranked.Take(1).ToArray() };
         }
 
-        var shortlist = ranked.Take(Math.Min(config.AiTopCandidates, ranked.Count)).ToList();
+        var shortlist = SelectShortlist(ranked, config.AiTopCandidates);
+        if (shortlist.Count > config.AiTopCandidates)
+        {
+            _log.Info($"[{code}] 前几名的条数并列，AI 评审范围从 {config.AiTopCandidates} 份扩大到 {shortlist.Count} 份。");
+        }
+
         var verdicts = await _ai
             .JudgeAsync(code, shortlist, AiSettings.From(config, Guid.NewGuid().ToString("N")), preferred, cancellationToken)
             .ConfigureAwait(false);
@@ -165,12 +195,43 @@ public sealed class SubtitleFinder : ISubtitleFinder
             return outcome with { Shortlist = shortlist };
         }
 
+        var judged = new HashSet<SubtitlePick>(shortlist, ReferenceEqualityComparer.Instance);
         return outcome with
         {
-            Ranked = SubtitleRanker.ApplyAiVerdicts(shortlist, verdicts).Concat(ranked.Skip(shortlist.Count)).ToArray(),
+            Ranked = SubtitleRanker.ApplyAiVerdicts(shortlist, verdicts)
+                .Concat(ranked.Where(pick => !judged.Contains(pick)))
+                .ToArray(),
             Verdicts = verdicts,
             Shortlist = shortlist
         };
+    }
+
+    /// <summary>Hard cap on how many candidates one judgement may compare.</summary>
+    internal const int MaxJudgedCandidates = 8;
+
+    /// <summary>
+    /// Picks what the model compares: the top <paramref name="topCandidates"/> by dialogue
+    /// volume, plus every candidate that has as many cues as the leader. Equal cue counts mean
+    /// the volume metric has nothing left to separate them — they are the same source run
+    /// through different translators — and a human translation sitting behind three identical
+    /// machine dumps would otherwise never reach the model.
+    /// </summary>
+    /// <param name="ranked">Chinese candidates, best first.</param>
+    /// <param name="topCandidates">The configured "judge the top N" value.</param>
+    /// <returns>The shortlist in ranking order, capped at <see cref="MaxJudgedCandidates"/>.</returns>
+    internal static List<SubtitlePick> SelectShortlist(IReadOnlyList<SubtitlePick> ranked, int topCandidates)
+    {
+        if (ranked.Count == 0)
+        {
+            return [];
+        }
+
+        var top = Math.Clamp(topCandidates, 1, MaxJudgedCandidates);
+        var maxCues = ranked.Max(pick => pick.CueCount);
+        return ranked
+            .Where((pick, index) => index < top || (maxCues > 0 && pick.CueCount == maxCues))
+            .Take(MaxJudgedCandidates)
+            .ToList();
     }
 
     /// <summary>

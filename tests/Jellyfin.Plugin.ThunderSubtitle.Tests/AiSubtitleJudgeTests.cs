@@ -60,6 +60,17 @@ public class AiSubtitleJudgeTests
     }
 
     [Fact]
+    public void PromptCarriesDialogueOnly()
+    {
+        var request = AiSubtitleJudge.BuildRequest("X-1", [Pick("a.srt", SrtA), Pick("b.srt", SrtA)], Settings());
+
+        var user = request.Messages[1].Content;
+        Assert.Contains("看 这是今年的新人", user);
+        Assert.DoesNotContain("00:00:01", user);
+        Assert.DoesNotContain("-->", user);
+    }
+
+    [Fact]
     public void SampleRespectsCharacterCap()
     {
         var big = SrtA.Replace("看 这是今年的新人", new string('长', 5000));

@@ -1,6 +1,5 @@
 using System;
 using System.Collections.Generic;
-using System.Globalization;
 using System.Linq;
 using System.Net.Http;
 using System.Net.Http.Headers;
@@ -200,7 +199,7 @@ public sealed class AiSubtitleJudge
         prompt.Append("番号：").Append(code).Append('\n');
         prompt.Append("用户偏好：").Append(preferred == SubtitleLanguage.TraditionalChinese ? "繁体中文" : "简体中文")
             .Append("（同分时优先这一种）\n");
-        prompt.Append("下面是同一部影片的 ").Append(shortlist.Count).Append(" 份中文字幕候选，每份只抽取了部分对白（时间戳为原片时间）。\n");
+        prompt.Append("下面是同一部影片的 ").Append(shortlist.Count).Append(" 份中文字幕候选，每份只抽取了部分台词，已去掉时间轴，按原片顺序排列。\n");
 
         for (var index = 0; index < shortlist.Count; index++)
         {
@@ -324,17 +323,13 @@ public sealed class AiSubtitleJudge
                 continue;
             }
 
-            var line = string.Create(
-                CultureInfo.InvariantCulture,
-                $"[{cue.Start:hh\\:mm\\:ss}] {text}");
-
-            if (chars + line.Length > maxChars)
+            if (chars + text.Length > maxChars)
             {
                 break;
             }
 
-            builder.AppendLine(line);
-            chars += line.Length;
+            builder.AppendLine(text);
+            chars += text.Length;
         }
 
         return builder.ToString();
