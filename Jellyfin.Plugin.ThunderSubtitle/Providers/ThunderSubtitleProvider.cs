@@ -90,6 +90,11 @@ public sealed class ThunderSubtitleProvider : ISubtitleProvider
 
         _log.Info($"手动搜索 [{code}]：候选 {outcome.Candidates.Count} 条，中文 {outcome.Ranked.Count} 条。");
 
+        if (outcome.Ranked.Count == 0)
+        {
+            return [Notice(code, outcome)];
+        }
+
         return outcome.Ranked
             .Where(pick => pick.Uri is not null)
             .Select((pick, index) => ToInfo(pick, index + 1, outcome.Verdicts, request.MediaPath))
@@ -99,6 +104,13 @@ public sealed class ThunderSubtitleProvider : ISubtitleProvider
     /// <inheritdoc />
     public async Task<SubtitleResponse> GetSubtitles(string id, CancellationToken cancellationToken)
     {
+        if (SubtitleId.IsPlaceholder(id))
+        {
+            var reason = SubtitleId.DecodePlaceholder(id);
+            _log.Info($"手动下载：用户点了提示条目（{reason}），没有可下载的内容。");
+            throw new InvalidOperationException($"{reason}，请稍后重新搜索。");
+        }
+
         if (!SubtitleId.TryDecode(id, out var uri, out var name, out var mediaPath) || uri is null)
         {
             throw new ArgumentException("无法识别的字幕标识。", nameof(id));
@@ -176,6 +188,16 @@ public sealed class ThunderSubtitleProvider : ISubtitleProvider
 
     private static string Show(string? value) => string.IsNullOrWhiteSpace(value) ? "(空)" : value;
 
+    private static string Show(SubtitleLanguage language) => language switch
+    {
+        SubtitleLanguage.SimplifiedChinese => "简体",
+        SubtitleLanguage.TraditionalChinese => "繁体",
+        SubtitleLanguage.Japanese => "日文",
+        SubtitleLanguage.Korean => "韩文",
+        SubtitleLanguage.English => "英文",
+        _ => "其他语言"
+    };
+
     /// <summary>
     /// Deletes the Chinese subtitles already sitting next to the video, so Jellyfin writes the
     /// freshly picked one under the canonical name instead of adding <c>.0</c>, <c>.1</c>, ...
@@ -204,6 +226,38 @@ public sealed class ThunderSubtitleProvider : ISubtitleProvider
                 _log.Warn($"手动下载：旧字幕 {Path.GetFileName(file)} 删不掉（{ex.Message}），Jellyfin 会另存一个新文件。");
             }
         }
+    }
+
+    /// <summary>
+    /// A row that explains why the list is otherwise empty. Jellyfin renders an empty result
+    /// as "no subtitles found", which hides the difference between "the API was empty" and
+    /// "the release genuinely has none", and the user cannot tell it should be retried.
+    /// </summary>
+    /// <param name="code">The JAV code that was searched.</param>
+    /// <param name="outcome">What the pipeline produced.</param>
+    /// <returns>The notice row. Its id cannot be downloaded.</returns>
+    private static RemoteSubtitleInfo Notice(string code, FindOutcome outcome)
+    {
+        var reason = outcome.Candidates.Count == 0
+            ? $"上游接口连续 {ThunderClient.SearchAttempts} 次都返回空数据"
+            : $"上游 {outcome.Candidates.Count} 条候选里没有可用的中文字幕";
+
+        var detail = outcome.Candidates.Count == 0
+            ? "这是上游临时故障，过一会儿重试即可"
+            : string.Join('，', outcome.DroppedLanguages.Select(pair => $"{Show(pair.Key)} {pair.Value} 条")) + "，本次已按语言过滤丢弃";
+
+        return new RemoteSubtitleInfo
+        {
+            Id = SubtitleId.EncodePlaceholder(reason),
+            ProviderName = DisplayName,
+            Name = $"（{code}）{reason}",
+            Format = "srt",
+            Comment = detail,
+            ThreeLetterISOLanguageName = SavedLanguage,
+            IsHashMatch = false,
+            Forced = false,
+            HearingImpaired = false
+        };
     }
 
     private static RemoteSubtitleInfo ToInfo(
@@ -256,6 +310,8 @@ public sealed class ThunderSubtitleProvider : ISubtitleProvider
 /// </summary>
 public static class SubtitleId
 {
+    private const string PlaceholderMarker = "notice|";
+
     /// <summary>Builds the id for a candidate.</summary>
     /// <param name="uri">Download URI.</param>
     /// <param name="extension">Content extension, with or without the dot.</param>
@@ -265,10 +321,35 @@ public static class SubtitleId
     public static string Encode(Uri uri, string extension, string name, string? mediaPath)
     {
         var payload = string.Join('|', uri.AbsoluteUri, SubtitleText.NormalizeExtension(extension), name, mediaPath ?? string.Empty);
-        return Convert.ToBase64String(Encoding.UTF8.GetBytes(payload))
-            .TrimEnd('=')
-            .Replace('+', '-')
-            .Replace('/', '_');
+        return ToBase64Url(payload);
+    }
+
+    /// <summary>
+    /// Builds the id of a notice row: the entry shown in the dialog when the search came back
+    /// with nothing, so the user sees "upstream is empty" instead of an empty list.
+    /// </summary>
+    /// <param name="message">The reason to show.</param>
+    /// <returns>A URL-safe id that <see cref="TryDecode"/> rejects.</returns>
+    public static string EncodePlaceholder(string message) => ToBase64Url(PlaceholderMarker + message);
+
+    /// <summary>Reads the reason out of a notice id.</summary>
+    /// <param name="id">The id.</param>
+    /// <returns>The reason, or a generic message when the id is not a notice.</returns>
+    public static string DecodePlaceholder(string id)
+    {
+        return IsPlaceholder(id)
+            ? Base64UrlToText(id)[PlaceholderMarker.Length..]
+            : "上游暂无字幕";
+    }
+
+    /// <summary>Whether the id identifies a notice row rather than a real subtitle.</summary>
+    /// <param name="id">The id.</param>
+    /// <returns><c>true</c> when the id is a notice.</returns>
+    public static bool IsPlaceholder(string id)
+    {
+        return !string.IsNullOrWhiteSpace(id)
+               && TryDecodeText(id, out var text)
+               && text.StartsWith(PlaceholderMarker, StringComparison.Ordinal);
     }
 
     /// <summary>Decodes an id produced by <see cref="Encode"/>.</summary>
@@ -283,20 +364,7 @@ public static class SubtitleId
         name = string.Empty;
         mediaPath = string.Empty;
 
-        if (string.IsNullOrWhiteSpace(id))
-        {
-            return false;
-        }
-
-        var base64 = id.Replace('-', '+').Replace('_', '/');
-        base64 = base64.PadRight(base64.Length + ((4 - (base64.Length % 4)) % 4), '=');
-
-        string payload;
-        try
-        {
-            payload = Encoding.UTF8.GetString(Convert.FromBase64String(base64));
-        }
-        catch (FormatException)
+        if (!TryDecodeText(id, out var payload))
         {
             return false;
         }
@@ -311,5 +379,40 @@ public static class SubtitleId
         name = parts[2];
         mediaPath = parts.Length > 3 ? parts[3] : string.Empty;
         return true;
+    }
+
+    private static string ToBase64Url(string text)
+    {
+        return Convert.ToBase64String(Encoding.UTF8.GetBytes(text))
+            .TrimEnd('=')
+            .Replace('+', '-')
+            .Replace('/', '_');
+    }
+
+    private static string Base64UrlToText(string id)
+    {
+        return TryDecodeText(id, out var text) ? text : string.Empty;
+    }
+
+    private static bool TryDecodeText(string id, out string text)
+    {
+        text = string.Empty;
+        if (string.IsNullOrWhiteSpace(id))
+        {
+            return false;
+        }
+
+        var base64 = id.Replace('-', '+').Replace('_', '/');
+        base64 = base64.PadRight(base64.Length + ((4 - (base64.Length % 4)) % 4), '=');
+
+        try
+        {
+            text = Encoding.UTF8.GetString(Convert.FromBase64String(base64));
+            return true;
+        }
+        catch (FormatException)
+        {
+            return false;
+        }
     }
 }

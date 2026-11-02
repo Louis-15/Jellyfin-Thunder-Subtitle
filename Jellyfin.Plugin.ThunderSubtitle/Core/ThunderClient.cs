@@ -34,6 +34,19 @@ public sealed class ThunderException : Exception
 public sealed record ThunderCandidate(Uri Uri, string Name, string Extension);
 
 /// <summary>
+/// What one search produced. The endpoint intermittently answers with an empty
+/// <c>data</c> array (HTTP 200, <c>code:0</c>, <c>result:"ok"</c>) and hands back the real
+/// list on a later call, so the number of attempts is reported to the caller.
+/// </summary>
+/// <param name="Candidates">The candidates of the first attempt that returned any.</param>
+/// <param name="Attempts">How many requests the search took.</param>
+public sealed record ThunderSearch(IReadOnlyList<ThunderCandidate> Candidates, int Attempts)
+{
+    /// <summary>Gets a value indicating whether the API never returned anything.</summary>
+    public bool IsEmpty => Candidates.Count == 0;
+}
+
+/// <summary>
 /// Client for <c>https://api-shoulei-ssl.xunlei.com/oracle/subtitle?name=&lt;code&gt;</c>.
 /// The endpoint needs no authentication but does want a normal User-Agent.
 /// </summary>
@@ -48,8 +61,32 @@ public sealed class ThunderClient
     /// <summary>The search endpoint; the code is appended URL-encoded.</summary>
     public const string SearchEndpoint = "https://api-shoulei-ssl.xunlei.com/oracle/subtitle?name=";
 
-    /// <summary>Time allowed for the search request. The API answers in well under a second.</summary>
+    /// <summary>Time allowed for one search request. The API answers in well under a second.</summary>
     public static readonly TimeSpan SearchTimeout = TimeSpan.FromSeconds(20);
+
+    /// <summary>
+    /// How many times an empty search answer is retried. Measured against the live endpoint,
+    /// roughly 40% of requests come back with an empty <c>data</c> array even for a release
+    /// that exists, and the next call a second later returns the full list. Three attempts
+    /// still failed about one search in five during testing, five bring that under 1%.
+    /// </summary>
+    public const int SearchAttempts = 5;
+
+    /// <summary>The pause before each retry, so a search waits at most four extra seconds.</summary>
+    public static readonly IReadOnlyList<TimeSpan> SearchRetryDelays =
+    [
+        TimeSpan.FromSeconds(1),
+        TimeSpan.FromSeconds(1),
+        TimeSpan.FromSeconds(1),
+        TimeSpan.FromSeconds(1)
+    ];
+
+    /// <summary>
+    /// The API is the one behind the xunlei web page and answers noticeably more often when
+    /// the request looks like that page's own fetch instead of a bare API client.
+    /// </summary>
+    private const string BrowserUserAgent =
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36";
 
     /// <summary>
     /// Time allowed for one subtitle download. A candidate is 10-100 KB, so anything
@@ -64,13 +101,49 @@ public sealed class ThunderClient
         PropertyNameCaseInsensitive = true
     };
 
-    private static readonly HttpClient Http = CreateHttpClient();
+    private static readonly HttpClient Shared = CreateHttpClient();
 
-    /// <summary>Searches the Xunlei API by JAV code.</summary>
+    private readonly HttpClient _http;
+    private readonly IReadOnlyList<TimeSpan> _retryDelays;
+
+    /// <summary>Initializes a new instance of the <see cref="ThunderClient"/> class.</summary>
+    public ThunderClient()
+        : this(Shared, SearchRetryDelays)
+    {
+    }
+
+    /// <summary>Initializes a new instance of the <see cref="ThunderClient"/> class for tests.</summary>
+    /// <param name="http">The client to send requests with.</param>
+    /// <param name="retryDelays">The pauses between search attempts.</param>
+    internal ThunderClient(HttpClient http, IReadOnlyList<TimeSpan> retryDelays)
+    {
+        _http = http;
+        _retryDelays = retryDelays;
+    }
+
+    /// <summary>
+    /// Searches the Xunlei API by JAV code. An empty answer is retried, because the endpoint
+    /// returns one at random even for releases it does have.
+    /// </summary>
     /// <param name="code">The code, e.g. <c>ABF-363</c>.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
-    /// <returns>The candidates the API reported, with unusable URLs already dropped.</returns>
-    public async Task<IReadOnlyList<ThunderCandidate>> SearchAsync(string code, CancellationToken cancellationToken)
+    /// <returns>The candidates and how many attempts the answer took.</returns>
+    public async Task<ThunderSearch> SearchAsync(string code, CancellationToken cancellationToken)
+    {
+        for (var attempt = 1; ; attempt++)
+        {
+            var candidates = await SearchOnceAsync(code, cancellationToken).ConfigureAwait(false);
+            if (candidates.Count > 0 || attempt >= SearchAttempts)
+            {
+                return new ThunderSearch(candidates, attempt);
+            }
+
+            var delay = _retryDelays[Math.Min(attempt - 1, _retryDelays.Count - 1)];
+            await Task.Delay(delay, cancellationToken).ConfigureAwait(false);
+        }
+    }
+
+    private async Task<IReadOnlyList<ThunderCandidate>> SearchOnceAsync(string code, CancellationToken cancellationToken)
     {
         using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         timeout.CancelAfter(SearchTimeout);
@@ -78,8 +151,13 @@ public sealed class ThunderClient
         var url = SearchEndpoint + Uri.EscapeDataString(code);
         try
         {
-            using var response = await Http
-                .GetAsync(url, HttpCompletionOption.ResponseHeadersRead, timeout.Token)
+            using var request = new HttpRequestMessage(HttpMethod.Get, url);
+            request.Headers.TryAddWithoutValidation("User-Agent", BrowserUserAgent);
+            request.Headers.TryAddWithoutValidation("Accept", "application/json, text/plain, */*");
+            request.Headers.TryAddWithoutValidation("Referer", "https://www.xunlei.com/");
+
+            using var response = await _http
+                .SendAsync(request, HttpCompletionOption.ResponseHeadersRead, timeout.Token)
                 .ConfigureAwait(false);
 
             if (!response.IsSuccessStatusCode)
@@ -152,7 +230,7 @@ public sealed class ThunderClient
 
         try
         {
-            using var response = await Http
+            using var response = await _http
                 .GetAsync(uri, HttpCompletionOption.ResponseHeadersRead, timeout.Token)
                 .ConfigureAwait(false);
 

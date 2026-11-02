@@ -38,7 +38,7 @@ var codes = args.Length > 0 ? args : ["ABF-363", "MIUM-1457", "FSDSS-272"];
 var outputDirectory = Path.Combine(Path.GetTempPath(), "thunder-probe-" + DateTime.Now.ToString("yyyyMMdd-HHmmss"));
 Directory.CreateDirectory(outputDirectory);
 
-using var client = new ThunderClient();
+var client = new ThunderClient();
 var exitCode = 0;
 
 foreach (var raw in codes)
@@ -49,7 +49,12 @@ foreach (var raw in codes)
     IReadOnlyList<ThunderCandidate> candidates;
     try
     {
-        candidates = await client.SearchAsync(code, CancellationToken.None);
+        var search = await client.SearchAsync(code, CancellationToken.None);
+        candidates = search.Candidates;
+        if (search.Attempts > 1)
+        {
+            Console.WriteLine($"    前 {search.Attempts - 1} 次为空，第 {search.Attempts} 次返回 {search.Candidates.Count} 条");
+        }
     }
     catch (Exception ex)
     {
@@ -64,7 +69,7 @@ foreach (var raw in codes)
     if (alternative is not null && !candidates.Any(c => SubtitleRanker.HasCode(c.Name, code)))
     {
         Console.WriteLine($"    没有番号匹配的候选，改用 {alternative} 补查");
-        var secondary = await client.SearchAsync(alternative, CancellationToken.None);
+        var secondary = (await client.SearchAsync(alternative, CancellationToken.None)).Candidates;
         candidates = candidates.Concat(secondary)
             .GroupBy(c => c.Uri.AbsoluteUri, StringComparer.Ordinal)
             .Select(group => group.First())

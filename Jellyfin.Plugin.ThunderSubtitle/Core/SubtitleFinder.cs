@@ -184,8 +184,7 @@ public sealed class SubtitleFinder : ISubtitleFinder
         PluginConfiguration config,
         CancellationToken cancellationToken)
     {
-        await ThrottleSearchAsync(config, cancellationToken).ConfigureAwait(false);
-        var candidates = await _thunder.SearchAsync(code, cancellationToken).ConfigureAwait(false);
+        var candidates = await SearchOnceLoggedAsync(code, config, cancellationToken).ConfigureAwait(false);
 
         if (candidates.Any(candidate => SubtitleRanker.HasCode(candidate.Name, code)))
         {
@@ -195,18 +194,45 @@ public sealed class SubtitleFinder : ISubtitleFinder
         var alternative = JavCode.AlternativeSpelling(code);
         if (alternative is null)
         {
+            WarnIfEmpty(code, candidates);
             return candidates;
         }
 
         _log.Debug($"[{code}] {candidates.Count} 条候选里没有番号匹配的，改用「{alternative}」再查一次。");
-        await ThrottleSearchAsync(config, cancellationToken).ConfigureAwait(false);
-        var secondary = await _thunder.SearchAsync(alternative, cancellationToken).ConfigureAwait(false);
+        var secondary = await SearchOnceLoggedAsync(alternative, config, cancellationToken).ConfigureAwait(false);
 
-        return candidates
+        var merged = candidates
             .Concat(secondary)
             .GroupBy(candidate => candidate.Uri.AbsoluteUri, StringComparer.Ordinal)
             .Select(group => group.First())
             .ToArray();
+
+        WarnIfEmpty(code, merged);
+        return merged;
+    }
+
+    private async Task<IReadOnlyList<ThunderCandidate>> SearchOnceLoggedAsync(
+        string code,
+        PluginConfiguration config,
+        CancellationToken cancellationToken)
+    {
+        await ThrottleSearchAsync(config, cancellationToken).ConfigureAwait(false);
+        var search = await _thunder.SearchAsync(code, cancellationToken).ConfigureAwait(false);
+
+        if (search.Attempts > 1)
+        {
+            _log.Info($"[{code}] 上游前 {search.Attempts - 1} 次搜索返回空数据，第 {search.Attempts} 次拿到 {search.Candidates.Count} 条候选。");
+        }
+
+        return search.Candidates;
+    }
+
+    private void WarnIfEmpty(string code, IReadOnlyList<ThunderCandidate> candidates)
+    {
+        if (candidates.Count == 0)
+        {
+            _log.Warn($"[{code}] 上游接口连续 {ThunderClient.SearchAttempts} 次搜索都返回空数据，本次没有任何候选。稍后重试通常就恢复。");
+        }
     }
 
     private async Task ThrottleSearchAsync(PluginConfiguration config, CancellationToken cancellationToken)

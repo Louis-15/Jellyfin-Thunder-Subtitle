@@ -29,18 +29,28 @@ public class ThunderSubtitleProviderTests
 
         public Dictionary<int, AiVerdict>? Verdicts { get; set; }
 
+        public Dictionary<SubtitleLanguage, int> Dropped { get; set; } = [];
+
+        public int RawCandidates { get; set; }
+
         public int Calls { get; private set; }
 
         public Task<FindOutcome> FindAsync(string code, CancellationToken cancellationToken)
         {
             Calls++;
             var ranked = Picks.ToArray();
+            var candidates = ranked.Length > 0
+                ? ranked.Select(p => new ThunderCandidate(p.Uri!, p.CandidateName, "srt")).ToArray()
+                : Enumerable.Range(0, RawCandidates)
+                    .Select(i => new ThunderCandidate(new Uri($"https://subtitle.v.geilijiasu.com/x{i}.srt"), $"x{i}.srt", "srt"))
+                    .ToArray();
+
             return Task.FromResult(new FindOutcome(
-                ranked.Select(p => new ThunderCandidate(p.Uri!, p.CandidateName, "srt")).ToArray(),
-                ranked.Length,
+                candidates,
+                candidates.Length,
                 ranked,
                 Verdicts,
-                new Dictionary<SubtitleLanguage, int>(),
+                Dropped,
                 0,
                 0.1) { Shortlist = ranked });
         }
@@ -161,6 +171,54 @@ public class ThunderSubtitleProviderTests
         Assert.True(results[1].MachineTranslated);
         Assert.Contains("AI 90 分", results[0].Comment);
         Assert.Contains("直译", results[1].Comment);
+    }
+
+    [Fact]
+    public async Task SearchShowsANoticeWhenTheApiReturnsNothing()
+    {
+        var finder = new FakeFinder();
+
+        var results = (await Create(finder).Search(Request("Chinese (Simplified)"), CancellationToken.None)).ToArray();
+
+        var notice = Assert.Single(results);
+        Assert.Contains("ABF-363", notice.Name);
+        Assert.Contains("空数据", notice.Name);
+        Assert.True(SubtitleId.IsPlaceholder(notice.Id));
+        Assert.False(SubtitleId.TryDecode(notice.Id, out _, out _, out _));
+    }
+
+    [Fact]
+    public async Task SearchNoticeExplainsWhenOnlyForeignSubtitlesExist()
+    {
+        var finder = new FakeFinder();
+        finder.RawCandidates = 1;
+        finder.Dropped = new Dictionary<SubtitleLanguage, int> { [SubtitleLanguage.English] = 3 };
+
+        var results = (await Create(finder).Search(Request("Chinese (Simplified)"), CancellationToken.None)).ToArray();
+
+        var notice = Assert.Single(results);
+        Assert.Contains("1 条候选", notice.Name);
+        Assert.Contains("英文 3 条", notice.Comment);
+    }
+
+    [Fact]
+    public async Task GetSubtitlesRejectsANotice()
+    {
+        var provider = Create(new FakeFinder());
+        var id = SubtitleId.EncodePlaceholder("上游接口连续 3 次都返回空数据");
+
+        var error = await Assert.ThrowsAsync<InvalidOperationException>(() => provider.GetSubtitles(id, CancellationToken.None));
+        Assert.Contains("请稍后重新搜索", error.Message);
+    }
+
+    [Fact]
+    public void PlaceholderIdIsRecognised()
+    {
+        var id = SubtitleId.EncodePlaceholder("上游暂无字幕");
+
+        Assert.True(SubtitleId.IsPlaceholder(id));
+        Assert.Equal("上游暂无字幕", SubtitleId.DecodePlaceholder(id));
+        Assert.False(SubtitleId.IsPlaceholder(SubtitleId.Encode(new Uri("https://subtitle.v.geilijiasu.com/x.srt"), ".srt", "x.srt", null)));
     }
 
     [Fact]

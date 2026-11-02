@@ -1,7 +1,7 @@
 {
     "guid":  "e4b2d7a1-9c3f-4f86-8d15-2a7b9e6c1f03",
     "name":  "Thunder Subtitle",
-    "version":  "1.5.0.2",
+    "version":  "1.5.1.0",
     "targetAbi":  "12.2.0.0",
     "framework":  "net10.0",
     "owner":  "Jellyfin-Thunder-Subtitle",
