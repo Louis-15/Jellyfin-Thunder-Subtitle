@@ -300,11 +300,11 @@
                 title.textContent = data.name || '字幕预览';
                 meta.textContent = [
                     data.language,
-                    data.cues + ' 条',
-                    data.chars + ' 字',
+                    data.cueCount + ' 条',
+                    data.contentChars + ' 字',
                     formatBytes(data.bytes),
                     (data.extension || '').toUpperCase(),
-                    data.encoding
+                    data.encodingName
                 ].filter(Boolean).join(' · ');
                 body.textContent = data.text || '';
             })
