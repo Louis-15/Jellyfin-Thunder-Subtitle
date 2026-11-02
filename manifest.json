@@ -9,12 +9,12 @@
     "imageUrl": "https://raw.githubusercontent.com/Louis-15/Jellyfin-Thunder-Subtitle/main/logo.png",
     "versions": [
       {
-        "version": "1.5.0.0",
-        "changelog": "Release 1.5.0.0\n\n新增 Jellyfin 字幕提供者：单部影片右键「修改字幕 → 搜索字幕」即可列出迅雷候选并挑选下载，不必等定时任务。搜索/下载/语言过滤/排序/ AI 评审与定时任务共用同一套逻辑；手动下载由 Jellyfin 自己写成 <片名>.chi.<ext>。候选说明里显示简繁、字数、条数、体积与 AI 评分。",
+        "version": "1.5.0.1",
+        "changelog": "Release 1.5.0.1\n\n修正单部影片「修改字幕 → 搜索字幕」列表为空的问题：Jellyfin 传入的请求语言有时是 und/iv 之类的未确定值，旧逻辑把它当成非中文直接返回空列表且不写日志；现在未确定语言会回退到可读语言名判断。同时把手动搜索的入口、语言跳过、番号识别都改成 INFO 日志，便于在 Jellyfin 日志里直接看到这次搜索到底走到了哪一步。",
         "targetAbi": "12.2.0.0",
-        "sourceUrl": "https://github.com/Louis-15/Jellyfin-Thunder-Subtitle/releases/download/v1.5.0.0/thunder-subtitle_1.5.0.0.zip",
-        "checksum": "5cf4cb84a8264a429f27b0860aea71bf",
-        "timestamp": "2026-11-02T16:45:09Z"
+        "sourceUrl": "https://github.com/Louis-15/Jellyfin-Thunder-Subtitle/releases/download/v1.5.0.1/thunder-subtitle_1.5.0.1.zip",
+        "checksum": "08de8c43c876e0d0862f5943a97df17f",
+        "timestamp": "2026-11-02T16:59:48Z"
       }
     ]
   }
