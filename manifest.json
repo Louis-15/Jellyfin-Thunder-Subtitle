@@ -9,12 +9,12 @@
     "imageUrl": "https://raw.githubusercontent.com/Louis-15/Jellyfin-Thunder-Subtitle/main/logo.png",
     "versions": [
       {
-        "version": "1.5.1.0",
-        "changelog": "Release 1.5.1.0\n\n搜索抗抖动：上游接口随机返回空 data 时自动重试（最多 5 次，总等待不超过 4 秒），并改用浏览器 User-Agent 提高命中率；搜不到时不再显示空白，而是返回一条说明原因的提示条目。",
+        "version": "1.6.0.0",
+        "changelog": "Release 1.6.0.0\n\nAI 评审：条数并列时扩大送审范围（上限 8 份）；送给模型的台词去掉时间轴；搜索结果第三行显示中间对白预览（PreviewLines，默认 6 行）；修正 AI 重排后分数错位",
         "targetAbi": "12.2.0.0",
-        "sourceUrl": "https://github.com/Louis-15/Jellyfin-Thunder-Subtitle/releases/download/v1.5.1.0/thunder-subtitle_1.5.1.0.zip",
-        "checksum": "c5ca67f6026c10aab7613cee473befb6",
-        "timestamp": "2026-11-02T17:30:32Z"
+        "sourceUrl": "https://github.com/Louis-15/Jellyfin-Thunder-Subtitle/releases/download/v1.6.0.0/thunder-subtitle_1.6.0.0.zip",
+        "checksum": "d4a8f2ce45b4c903550610fda3688c77",
+        "timestamp": "2026-11-02T17:40:13Z"
       }
     ]
   }
