@@ -9,12 +9,12 @@
     "imageUrl": "https://raw.githubusercontent.com/Louis-15/Jellyfin-Thunder-Subtitle/main/logo.png",
     "versions": [
       {
-        "version": "1.5.0.2",
-        "changelog": "Release 1.5.0.2\n\n手动搜索已能正常工作（上一版修好了语言判断：Jellyfin 传进来的 TwoLetter 其实是 zh-cn，旧代码死抠等于 zh，所以永远返回空列表）。这一版修下载后的重复文件：Jellyfin 发现同名文件已存在时会另存为 <片名>.chi.0.srt，多次挑选就会堆出一串重复字幕。现在下载前会先删掉旁边所有 <片名>.chi/zh* 的字幕文件，保证只留一份 <片名>.chi.<ext>。",
+        "version": "1.5.1.0",
+        "changelog": "Release 1.5.1.0\n\n搜索抗抖动：上游接口随机返回空 data 时自动重试（最多 5 次，总等待不超过 4 秒），并改用浏览器 User-Agent 提高命中率；搜不到时不再显示空白，而是返回一条说明原因的提示条目。",
         "targetAbi": "12.2.0.0",
-        "sourceUrl": "https://github.com/Louis-15/Jellyfin-Thunder-Subtitle/releases/download/v1.5.0.2/thunder-subtitle_1.5.0.2.zip",
-        "checksum": "c2e51d797f154385cba746764510b16f",
-        "timestamp": "2026-11-02T17:06:28Z"
+        "sourceUrl": "https://github.com/Louis-15/Jellyfin-Thunder-Subtitle/releases/download/v1.5.1.0/thunder-subtitle_1.5.1.0.zip",
+        "checksum": "c5ca67f6026c10aab7613cee473befb6",
+        "timestamp": "2026-11-02T17:30:32Z"
       }
     ]
   }
