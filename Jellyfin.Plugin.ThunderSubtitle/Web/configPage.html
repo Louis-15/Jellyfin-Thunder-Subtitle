@@ -179,20 +179,33 @@
                         </div>
                     </div>
 
-                    <div class="inputContainer">
+                    <div class="ts-grid">
+                        <div class="selectContainer">
+                            <label class="selectLabel" for="AiProvider">供应商</label>
+                            <select is="emby-select" id="AiProvider" class="emby-select-withcolor">
+                                <option value="OpenCode">Open Code（内置）</option>
+                                <option value="Custom">自定义（OpenAI 兼容）</option>
+                            </select>
+                            <div class="fieldDescription">
+                                Open Code 已内置 <code>https://opencode.ai/inference/go/openai/v1</code>，
+                                并自动附带它要求的 <code>x-opencode-session</code> 请求头。
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="inputContainer" id="AiBaseUrlRow">
                         <label class="inputLabel inputLabelUnfocused" for="AiBaseUrl">API Base URL</label>
-                        <input is="emby-input" id="AiBaseUrl" type="text" placeholder="https://api.deepseek.com/v1" />
+                        <input is="emby-input" id="AiBaseUrl" type="text" placeholder="http://192.168.1.10:11434/v1" />
                         <div class="fieldDescription">
-                            任何 OpenAI 兼容网关都可以：<code>https://api.deepseek.com/v1</code>、
-                            <code>https://api.openai.com/v1</code>、本地 <code>http://192.168.1.10:11434/v1</code>。
-                            会自动补上 <code>/chat/completions</code>。
+                            仅「自定义」需要填：任何 OpenAI 兼容网关，会自动补上 <code>/chat/completions</code>。
                         </div>
                     </div>
 
                     <div class="ts-grid">
                         <div class="inputContainer">
                             <label class="inputLabel inputLabelUnfocused" for="AiModel">模型名</label>
-                            <input is="emby-input" id="AiModel" type="text" placeholder="deepseek-chat" />
+                            <input is="emby-input" id="AiModel" type="text" placeholder="deepseek-v4.1-flash" />
+                            <div class="fieldDescription">Open Code 可用：deepseek-v4.1-flash、glm-5.3-flash、kimi-k3 等。</div>
                         </div>
                         <div class="inputContainer">
                             <label class="inputLabel inputLabelUnfocused" for="AiApiKey">API Key</label>
@@ -258,6 +271,11 @@
 
             function byId(id) {
                 return page.querySelector('#' + id);
+            }
+
+            function syncProviderRows() {
+                var custom = byId('AiProvider').value === 'Custom';
+                byId('AiBaseUrlRow').style.display = custom ? '' : 'none';
             }
 
             function setStatus(message, bad) {
@@ -328,11 +346,13 @@
                     byId('LogLevel').value = cfg.LogLevel || 'Information';
                     byId('PreferredLanguage').value = cfg.PreferredLanguage || 'Simplified';
                     byId('AiEnabled').checked = cfg.AiEnabled === true;
+                    byId('AiProvider').value = cfg.AiProvider || 'OpenCode';
                     byId('AiBaseUrl').value = cfg.AiBaseUrl || '';
+                    byId('AiModel').value = cfg.AiModel || 'deepseek-v4.1-flash';
                     byId('AiApiKey').value = cfg.AiApiKey || '';
-                    byId('AiModel').value = cfg.AiModel || '';
                     byId('AiTopCandidates').value = cfg.AiTopCandidates || 3;
                     byId('AiTimeoutSeconds').value = cfg.AiTimeoutSeconds || 60;
+                    syncProviderRows();
 
                     return ApiClient.getJSON(ApiClient.getUrl('Library/VirtualFolders')).then(function (libraries) {
                         renderLibraries(libraries || [], cfg.LibraryIds || []);
@@ -403,9 +423,10 @@
                     cfg.PreferredLanguage = byId('PreferredLanguage').value || 'Simplified';
 
                     cfg.AiEnabled = byId('AiEnabled').checked;
+                    cfg.AiProvider = byId('AiProvider').value || 'OpenCode';
                     cfg.AiBaseUrl = byId('AiBaseUrl').value.trim();
                     cfg.AiApiKey = byId('AiApiKey').value.trim();
-                    cfg.AiModel = byId('AiModel').value.trim();
+                    cfg.AiModel = byId('AiModel').value.trim() || 'deepseek-v4.1-flash';
 
                     var topN = parseInt(byId('AiTopCandidates').value, 10);
                     cfg.AiTopCandidates = isNaN(topN) ? 3 : Math.min(5, Math.max(2, topN));
@@ -430,6 +451,7 @@
             });
 
             document.querySelector('#ThunderSubtitleForm').addEventListener('submit', save);
+            document.querySelector('#AiProvider').addEventListener('change', syncProviderRows);
             document.querySelector('#ReloadLibraries').addEventListener('click', function () {
                 loadLibraries().then(function () {
                     setStatus('已刷新影视库列表，记得保存。');

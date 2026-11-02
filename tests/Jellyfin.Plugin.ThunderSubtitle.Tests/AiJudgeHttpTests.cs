@@ -30,7 +30,7 @@ public class AiJudgeHttpTests
             """{"choices":[{"message":{"content":"{\"candidates\":[{\"id\":1,\"score\":35,\"machine\":true,\"reason\":\"直译\"},{\"id\":2,\"score\":91,\"machine\":false,\"reason\":\"自然\"}]}"}}]}""");
 
         var judge = new AiSubtitleJudge(NullLogger<AiSubtitleJudge>.Instance);
-        var settings = new AiSettings(stub.BaseUrl + "/v1", "secret-key", "stub-model", 12, 1000, 20);
+        var settings = new AiSettings(stub.BaseUrl + "/v1", "secret-key", "stub-model", 12, 1000, 20, "session-abc", UseSessionHeader: true);
 
         var verdicts = await judge.JudgeAsync(
             "FSDSS-272",
@@ -44,8 +44,29 @@ public class AiJudgeHttpTests
         Assert.Equal(91, verdicts[2].Score);
         Assert.Equal("/v1/chat/completions", stub.LastPath);
         Assert.Equal("Bearer secret-key", stub.LastAuthorization);
+        Assert.Equal("session-abc", stub.LastSessionHeader);
         Assert.Contains("\"model\":\"stub-model\"", stub.LastBody);
         Assert.Contains("FSDSS-272", stub.LastBody);
+    }
+
+    [Fact]
+    public async Task DoesNotSendTheOpenCodeHeaderForCustomProviders()
+    {
+        await using var stub = new StubServer(
+            HttpStatusCode.OK,
+            """{"choices":[{"message":{"content":"{\"candidates\":[{\"id\":1,\"score\":35,\"machine\":true},{\"id\":2,\"score\":91,\"machine\":false}]}"}}]}""");
+
+        var judge = new AiSubtitleJudge(NullLogger<AiSubtitleJudge>.Instance);
+        var settings = new AiSettings(stub.BaseUrl + "/v1", "k", "m", 8, 1000, 20, "session-abc", UseSessionHeader: false);
+
+        await judge.JudgeAsync(
+            "X-1",
+            [Pick("a.srt", SrtA), Pick("b.srt", SrtB)],
+            settings,
+            SubtitleLanguage.SimplifiedChinese,
+            CancellationToken.None);
+
+        Assert.Equal(string.Empty, stub.LastSessionHeader);
     }
 
     [Fact]
@@ -124,6 +145,8 @@ public class AiJudgeHttpTests
 
         public string LastAuthorization { get; private set; } = string.Empty;
 
+        public string LastSessionHeader { get; private set; } = string.Empty;
+
         public string LastBody { get; private set; } = string.Empty;
 
         public async ValueTask DisposeAsync()
@@ -157,6 +180,7 @@ public class AiJudgeHttpTests
                 RequestCount++;
                 LastPath = context.Request.Url?.AbsolutePath ?? string.Empty;
                 LastAuthorization = context.Request.Headers["Authorization"] ?? string.Empty;
+                LastSessionHeader = context.Request.Headers["x-opencode-session"] ?? string.Empty;
                 using (var reader = new System.IO.StreamReader(context.Request.InputStream, Encoding.UTF8))
                 {
                     LastBody = await reader.ReadToEndAsync().ConfigureAwait(false);

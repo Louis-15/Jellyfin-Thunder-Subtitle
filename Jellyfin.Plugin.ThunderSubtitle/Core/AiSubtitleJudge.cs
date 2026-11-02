@@ -11,32 +11,43 @@ using System.Text.Json.Serialization;
 namespace Jellyfin.Plugin.ThunderSubtitle.Core;
 
 /// <summary>Connection settings for the OpenAI-compatible endpoint.</summary>
-/// <param name="BaseUrl">API root, e.g. <c>https://api.deepseek.com/v1</c>.</param>
+/// <param name="BaseUrl">API root, e.g. <c>https://opencode.ai/inference/go/openai/v1</c>.</param>
 /// <param name="ApiKey">Bearer token; empty for a local server that needs none.</param>
 /// <param name="Model">Model name.</param>
 /// <param name="SampleCues">How many cue lines to sample per candidate.</param>
 /// <param name="MaxCharsPerCandidate">Hard cap on sampled characters per candidate.</param>
 /// <param name="TimeoutSeconds">Per-request timeout.</param>
+/// <param name="SessionId">
+/// Stable id sent as <c>x-opencode-session</c>. OpenCode Go requires it and uses it for
+/// routing and prompt caching; other providers ignore the header, so it is only sent
+/// when the built-in provider is selected.
+/// </param>
+/// <param name="UseSessionHeader">Whether to send the <c>x-opencode-session</c> header.</param>
 public sealed record AiSettings(
     string BaseUrl,
     string ApiKey,
     string Model,
     int SampleCues,
     int MaxCharsPerCandidate,
-    int TimeoutSeconds)
+    int TimeoutSeconds,
+    string SessionId = "",
+    bool UseSessionHeader = false)
 {
     /// <summary>Creates settings from the plugin configuration.</summary>
     /// <param name="configuration">The plugin configuration.</param>
+    /// <param name="sessionId">Stable id for this conversation.</param>
     /// <returns>The settings.</returns>
-    public static AiSettings From(PluginConfiguration configuration)
+    public static AiSettings From(PluginConfiguration configuration, string sessionId = "")
     {
         return new AiSettings(
-            configuration.AiBaseUrl,
+            configuration.ApiRoot,
             configuration.AiApiKey,
             configuration.AiModel,
             configuration.AiSampleCues,
             configuration.AiMaxCharsPerCandidate,
-            configuration.AiTimeoutSeconds);
+            configuration.AiTimeoutSeconds,
+            sessionId,
+            configuration.IsOpenCodeProvider);
     }
 }
 
@@ -120,6 +131,16 @@ public sealed class AiSubtitleJudge
             if (!string.IsNullOrWhiteSpace(settings.ApiKey))
             {
                 message.Headers.Authorization = new AuthenticationHeaderValue("Bearer", settings.ApiKey.Trim());
+            }
+
+            // OpenCode Go requires a stable per-conversation session id; their docs use it
+            // for routing and prompt caching. Other providers do not read the header, so
+            // it is only sent when the built-in provider is selected.
+            if (settings.UseSessionHeader)
+            {
+                message.Headers.TryAddWithoutValidation(
+                    "x-opencode-session",
+                    string.IsNullOrWhiteSpace(settings.SessionId) ? "jellyfin-thunder-subtitle" : settings.SessionId);
             }
 
             using var response = await Http

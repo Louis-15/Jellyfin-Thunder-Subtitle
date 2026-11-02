@@ -56,14 +56,35 @@ public class PluginConfiguration : BasePluginConfiguration
     /// </summary>
     public bool AiEnabled { get; set; }
 
-    /// <summary>Gets or sets the OpenAI-compatible API root, e.g. <c>https://api.deepseek.com/v1</c>.</summary>
-    public string AiBaseUrl { get; set; } = "https://api.deepseek.com/v1";
+    /// <summary>
+    /// Gets or sets the AI provider: <c>OpenCode</c> (built in) or <c>Custom</c>
+    /// (any other OpenAI-compatible endpoint).
+    /// </summary>
+    public string AiProvider { get; set; } = AiProviderOpenCode;
+
+    /// <summary>Provider id for the built-in OpenCode Go endpoint.</summary>
+    public const string AiProviderOpenCode = "OpenCode";
+
+    /// <summary>Provider id for a user-supplied OpenAI-compatible endpoint.</summary>
+    public const string AiProviderCustom = "Custom";
+
+    /// <summary>
+    /// The OpenCode Go API root. Required by their terms: requests must also carry a
+    /// stable <c>x-opencode-session</c> header, which <see cref="Core.AiSubtitleJudge"/> adds.
+    /// </summary>
+    public const string OpenCodeBaseUrl = "https://opencode.ai/inference/go/openai/v1";
+
+    /// <summary>Sensible default model on OpenCode Go.</summary>
+    public const string OpenCodeDefaultModel = "deepseek-v4.1-flash";
+
+    /// <summary>Gets or sets the OpenAI-compatible API root for the custom provider.</summary>
+    public string AiBaseUrl { get; set; } = string.Empty;
 
     /// <summary>Gets or sets the API key. Sent as a bearer token, never logged.</summary>
     public string AiApiKey { get; set; } = string.Empty;
 
     /// <summary>Gets or sets the model name.</summary>
-    public string AiModel { get; set; } = "deepseek-chat";
+    public string AiModel { get; set; } = OpenCodeDefaultModel;
 
     /// <summary>Gets or sets how many of the largest candidates are compared by the model.</summary>
     public int AiTopCandidates { get; set; } = 3;
@@ -79,8 +100,17 @@ public class PluginConfiguration : BasePluginConfiguration
 
     /// <summary>Gets a value indicating whether the AI check has everything it needs.</summary>
     public bool IsAiUsable => AiEnabled
-                              && !string.IsNullOrWhiteSpace(AiBaseUrl)
+                              && !string.IsNullOrWhiteSpace(ApiRoot)
                               && !string.IsNullOrWhiteSpace(AiModel);
+
+    /// <summary>Gets the effective API root for the selected provider.</summary>
+    public string ApiRoot => IsOpenCodeProvider
+        ? OpenCodeBaseUrl
+        : (AiBaseUrl ?? string.Empty).Trim();
+
+    /// <summary>Gets a value indicating whether the built-in OpenCode endpoint is selected.</summary>
+    public bool IsOpenCodeProvider =>
+        string.Equals(AiProvider, AiProviderOpenCode, StringComparison.OrdinalIgnoreCase);
 
     /// <summary>Parses <see cref="LogLevel"/> without throwing on a hand-edited config file.</summary>
     /// <returns>The configured level, or <see cref="Core.PluginLogLevel.Information"/>.</returns>
@@ -141,6 +171,13 @@ public class PluginConfiguration : BasePluginConfiguration
         AiBaseUrl ??= string.Empty;
         AiApiKey ??= string.Empty;
         AiModel ??= string.Empty;
+        AiProvider = string.Equals(AiProvider, AiProviderCustom, StringComparison.OrdinalIgnoreCase)
+            ? AiProviderCustom
+            : AiProviderOpenCode;
+        if (string.IsNullOrWhiteSpace(AiModel))
+        {
+            AiModel = OpenCodeDefaultModel;
+        }
         AiTopCandidates = Math.Clamp(AiTopCandidates, 2, 5);
         AiSampleCues = Math.Clamp(AiSampleCues, 4, 80);
         AiMaxCharsPerCandidate = Math.Clamp(AiMaxCharsPerCandidate, 500, 20_000);

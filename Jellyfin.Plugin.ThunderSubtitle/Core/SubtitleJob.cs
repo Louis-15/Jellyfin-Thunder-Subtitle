@@ -51,6 +51,12 @@ public sealed class SubtitleJob
 
     private DateTimeOffset _lastSearchAt = DateTimeOffset.MinValue;
 
+    /// <summary>
+    /// Identifies this run when talking to OpenCode Go. Their API requires a stable
+    /// session id per conversation; one run plus one item is the right granularity.
+    /// </summary>
+    private string _runSessionId = Guid.NewGuid().ToString("N");
+
     /// <summary>Initializes a new instance of the <see cref="SubtitleJob"/> class.</summary>
     /// <param name="libraryManager">Library manager.</param>
     /// <param name="providerManager">Used to refresh an item so Jellyfin sees the new sidecar.</param>
@@ -92,6 +98,7 @@ public sealed class SubtitleJob
 
         var stopwatch = Stopwatch.StartNew();
         var mode = repick ? "重新择优" : "自动补全";
+        _runSessionId = Guid.NewGuid().ToString("N");
 
         try
         {
@@ -477,7 +484,7 @@ public sealed class SubtitleJob
                   + string.Join(" / ", shortlist.Select((pick, index) => $"#{index + 1} {pick.CandidateName}（{Describe(pick.Language)} {pick.ContentChars} 字）")));
 
         var verdicts = await _ai
-            .JudgeAsync(code, shortlist, AiSettings.From(config), preferred, cancellationToken)
+            .JudgeAsync(code, shortlist, AiSettings.From(config, SessionIdFor(item)), preferred, cancellationToken)
             .ConfigureAwait(false);
 
         if (verdicts is null)
@@ -617,6 +624,8 @@ public sealed class SubtitleJob
     }
 
     private static string ItemKey(BaseItem item) => item.Id.ToString("N");
+
+    private string SessionIdFor(BaseItem item) => $"{_runSessionId}-{item.Id:N}";
 
     /// <summary>Human readable language name for the log.</summary>
     private static string Describe(SubtitleLanguage language) => language switch

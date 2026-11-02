@@ -153,6 +153,7 @@ public class AiSubtitleJudgeTests
     {
         var configuration = new PluginConfiguration
         {
+            AiProvider = PluginConfiguration.AiProviderCustom,
             AiBaseUrl = "https://api.example.test/v1",
             AiApiKey = "secret",
             AiModel = "m",
@@ -161,12 +162,42 @@ public class AiSubtitleJudgeTests
             AiTimeoutSeconds = 45
         };
 
-        var settings = AiSettings.From(configuration);
+        var settings = AiSettings.From(configuration, "sess");
 
         Assert.Equal("https://api.example.test/v1", settings.BaseUrl);
         Assert.Equal("secret", settings.ApiKey);
         Assert.Equal(12, settings.SampleCues);
         Assert.Equal(45, settings.TimeoutSeconds);
+        Assert.Equal("sess", settings.SessionId);
+        Assert.False(settings.UseSessionHeader);
+    }
+
+    [Fact]
+    public void OpenCodeProviderUsesTheBuiltInEndpointAndSessionHeader()
+    {
+        var configuration = new PluginConfiguration
+        {
+            AiProvider = PluginConfiguration.AiProviderOpenCode,
+            AiBaseUrl = "https://ignored.example/v1",
+            AiModel = PluginConfiguration.OpenCodeDefaultModel
+        };
+
+        var settings = AiSettings.From(configuration, "sess");
+
+        Assert.Equal(PluginConfiguration.OpenCodeBaseUrl, settings.BaseUrl);
+        Assert.Equal("https://opencode.ai/inference/go/openai/v1", settings.BaseUrl);
+        Assert.True(settings.UseSessionHeader);
+    }
+
+    [Fact]
+    public void UnknownProviderFallsBackToOpenCode()
+    {
+        var configuration = new PluginConfiguration { AiProvider = "SomeFutureProvider" };
+
+        configuration.Normalize();
+
+        Assert.Equal(PluginConfiguration.AiProviderOpenCode, configuration.AiProvider);
+        Assert.True(configuration.IsOpenCodeProvider);
     }
 
     [Fact]
@@ -192,7 +223,27 @@ public class AiSubtitleJudgeTests
     public void AiIsUnusableUntilEndpointAndModelAreSet()
     {
         Assert.False(new PluginConfiguration().IsAiUsable);
-        Assert.False(new PluginConfiguration { AiEnabled = true, AiModel = string.Empty }.IsAiUsable);
-        Assert.True(new PluginConfiguration { AiEnabled = true, AiBaseUrl = "https://x/v1", AiModel = "m" }.IsAiUsable);
+
+        var custom = new PluginConfiguration
+        {
+            AiEnabled = true,
+            AiProvider = PluginConfiguration.AiProviderCustom,
+            AiBaseUrl = string.Empty,
+            AiModel = "m"
+        };
+        Assert.False(custom.IsAiUsable);
+
+        custom.AiBaseUrl = "https://x/v1";
+        Assert.True(custom.IsAiUsable);
+
+        // OpenCode needs no Base URL of its own: it is built in.
+        var openCode = new PluginConfiguration
+        {
+            AiEnabled = true,
+            AiProvider = PluginConfiguration.AiProviderOpenCode,
+            AiBaseUrl = string.Empty,
+            AiModel = PluginConfiguration.OpenCodeDefaultModel
+        };
+        Assert.True(openCode.IsAiUsable);
     }
 }

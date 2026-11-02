@@ -150,11 +150,35 @@ GitHub Actions 随后编译、跑测试、打包、把**本次产物的 MD5** �
 | 配置项 | 默认 | 说明 |
 |---|---|---|
 | 启用 AI 评审 | 关 | 每部影片一次请求，前 N 名放在同一个请求里 |
-| API Base URL | `https://api.deepseek.com/v1` | 任何 OpenAI 兼容网关；自动补 `/chat/completions` |
-| 模型名 | `deepseek-chat` | 例如 `deepseek-chat` / `gpt-4o-mini` / `qwen2.5:14b` |
+| 供应商 | **Open Code（内置）** | 见下；也可以切「自定义」 |
+| API Base URL | — | 仅「自定义」需要填 |
+| 模型名 | `deepseek-v4.1-flash` | Open Code 可用 `glm-5.3-flash`、`kimi-k3` 等 |
 | API Key | 空 | 以 `Authorization: Bearer` 发送，不写日志 |
 | 评审前 N 名 | 3 | 2~5 |
 | 超时 | 60 秒 | 超时即回退到字符数排序 |
+
+### 供应商
+
+**Open Code（内置）**
+
+- Base URL 固定为 `https://opencode.ai/inference/go/openai/v1`，不用填。
+- 按 [OpenCode Go 文档](https://opencode.ai/docs/go/)的要求，每个请求都要带一个稳定的会话 ID：
+
+  > Send a stable session ID in `x-opencode-session` for each conversation so we can
+  > optimize routing and prompt caching.
+
+  插件会自动加上这个头，值形如 `<本次运行 GUID>-<条目 ID>`，同一部影片在同一次运行内保持稳定。
+- 客户端用插件自己的 User-Agent（`Jellyfin.Plugin.ThunderSubtitle/x.y.z`），文档同样要求不要用通用 SDK 名。
+
+**自定义（OpenAI 兼容）**
+
+填你自己的 Base URL 即可，不会发送 `x-opencode-session`。本地模型示例：
+
+```
+Base URL: http://127.0.0.1:11434/v1
+模型名:   qwen2.5:14b
+API Key:  （留空）
+```
 
 成本控制：每个候选只抽 24 条对白、最多 3000 字，3 个候选 ≈ 6k token/部。
 
