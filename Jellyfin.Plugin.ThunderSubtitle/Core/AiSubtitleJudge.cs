@@ -10,13 +10,6 @@ using System.Text.Json.Serialization;
 
 namespace Jellyfin.Plugin.ThunderSubtitle.Core;
 
-/// <summary>What the model decided about one candidate.</summary>
-/// <param name="Id">The 1-based id used in the prompt.</param>
-/// <param name="Score">Usability score, 0-100, higher is better.</param>
-/// <param name="MachineTranslated">Whether the model believes it is machine translated or auto-captioned.</param>
-/// <param name="Reason">Short justification, kept for the log.</param>
-public sealed record AiVerdict(int Id, double Score, bool MachineTranslated, string Reason);
-
 /// <summary>Connection settings for the OpenAI-compatible endpoint.</summary>
 /// <param name="BaseUrl">API root, e.g. <c>https://api.deepseek.com/v1</c>.</param>
 /// <param name="ApiKey">Bearer token; empty for a local server that needs none.</param>
@@ -84,12 +77,14 @@ public sealed class AiSubtitleJudge
     /// <param name="code">The JAV code, only used to give the model context.</param>
     /// <param name="shortlist">Candidates to compare, best-by-volume first.</param>
     /// <param name="settings">Endpoint settings.</param>
+    /// <param name="preferred">The Chinese form the user prefers.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>The verdicts keyed by candidate id, or <c>null</c> when the call failed.</returns>
     public async Task<IReadOnlyDictionary<int, AiVerdict>?> JudgeAsync(
         string code,
         IReadOnlyList<SubtitlePick> shortlist,
         AiSettings settings,
+        SubtitleLanguage preferred,
         CancellationToken cancellationToken)
     {
         if (shortlist.Count < 2)
@@ -109,7 +104,7 @@ public sealed class AiSubtitleJudge
             return null;
         }
 
-        var request = BuildRequest(code, shortlist, settings);
+        var request = BuildRequest(code, shortlist, settings, preferred);
         var body = JsonSerializer.Serialize(request, JsonOptions);
 
         using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
@@ -172,18 +167,26 @@ public sealed class AiSubtitleJudge
     /// <param name="code">The JAV code.</param>
     /// <param name="shortlist">Candidates to compare.</param>
     /// <param name="settings">Endpoint settings.</param>
+    /// <param name="preferred">The Chinese form the user prefers.</param>
     /// <returns>The request payload.</returns>
-    public static ChatRequest BuildRequest(string code, IReadOnlyList<SubtitlePick> shortlist, AiSettings settings)
+    public static ChatRequest BuildRequest(
+        string code,
+        IReadOnlyList<SubtitlePick> shortlist,
+        AiSettings settings,
+        SubtitleLanguage preferred = SubtitleLanguage.SimplifiedChinese)
     {
         var prompt = new StringBuilder();
         prompt.Append("番号：").Append(code).Append('\n');
+        prompt.Append("用户偏好：").Append(preferred == SubtitleLanguage.TraditionalChinese ? "繁体中文" : "简体中文")
+            .Append("（同分时优先这一种）\n");
         prompt.Append("下面是同一部影片的 ").Append(shortlist.Count).Append(" 份中文字幕候选，每份只抽取了部分对白（时间戳为原片时间）。\n");
 
         for (var index = 0; index < shortlist.Count; index++)
         {
             var pick = shortlist[index];
             prompt.Append("\n=== 候选 ").Append(index + 1).Append(" ===\n");
-            prompt.Append("总条数 ").Append(pick.CueCount).Append("，台词 ").Append(pick.ContentChars).Append(" 字\n");
+            prompt.Append("语言：").Append(pick.Language == SubtitleLanguage.TraditionalChinese ? "繁体中文" : "简体中文")
+                .Append("，总条数 ").Append(pick.CueCount).Append("，台词 ").Append(pick.ContentChars).Append(" 字\n");
             prompt.Append(BuildSample(pick, settings.SampleCues, settings.MaxCharsPerCandidate));
         }
 

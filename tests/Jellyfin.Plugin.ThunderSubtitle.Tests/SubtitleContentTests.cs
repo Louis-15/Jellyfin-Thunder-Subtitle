@@ -23,6 +23,50 @@ public class SubtitleContentTests
         "Dialogue: 0,0:00:04.00,0:00:06.00,Default,,0,0,0,,从美国\\N回来的");
 
     [Fact]
+    public void ParsesSrtWithoutBlankLinesBetweenCues()
+    {
+        // Real files (this one came from the Xunlei CDN) put no blank line between cues.
+        // Treating that as one huge cue counted every following timestamp as dialogue.
+        var srt = string.Join('\n',
+            "1",
+            "00:00:57,267 --> 00:00:59,807",
+            "如果能再次飞翔",
+            "2",
+            "00:00:59,882 --> 00:01:03,407",
+            "折断羽翼的空姐",
+            "3",
+            "00:01:03,500 --> 00:01:04,800",
+            "明日叶三叶");
+
+        var cues = SubtitleContent.Parse(srt, ".srt");
+
+        Assert.Equal(3, cues.Count);
+        Assert.Equal("如果能再次飞翔", cues[0].Text.Trim());
+        Assert.Equal("折断羽翼的空姐", cues[1].Text.Trim());
+        Assert.Equal("明日叶三叶", cues[2].Text.Trim());
+        Assert.Equal(19, SubtitleContent.Measure(srt, ".srt").ContentChars);
+    }
+
+    [Fact]
+    public void TimestampsAreNotCountedAsContent()
+    {
+        // 100 cues with no dialogue at all: the timestamps and index numbers must not
+        // be mistaken for subtitle content.
+        var builder = new System.Text.StringBuilder();
+        for (var i = 0; i < 100; i++)
+        {
+            builder.Append(i + 1).Append('\n');
+            builder.Append($"00:00:{i:00},000 --> 00:00:{i + 1:00},000\n");
+            builder.Append("……\n");
+        }
+
+        var stats = SubtitleContent.Measure(builder.ToString(), ".srt");
+
+        Assert.Equal(100, stats.CueCount);
+        Assert.Equal(0, stats.ContentChars);
+    }
+
+    [Fact]
     public void ParsesSrtCues()
     {
         var cues = SubtitleContent.Parse(SrtText, ".srt");

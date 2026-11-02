@@ -243,22 +243,49 @@ public static class SubtitleContent
                 continue;
             }
 
-            var arrow = line.IndexOf("-->", StringComparison.Ordinal);
-            if (arrow < 0)
+            // The timestamp line, possibly preceded by an SRT index or a VTT cue id.
+            string timestamp;
+            if (line.Contains("-->", StringComparison.Ordinal))
             {
-                // Either an SRT index line or a VTT cue identifier: the timestamp follows.
+                timestamp = line;
+                index++;
+            }
+            else if (index + 1 < lines.Length && lines[index + 1].Contains("-->", StringComparison.Ordinal))
+            {
+                timestamp = lines[index + 1].Trim();
+                index += 2;
+            }
+            else
+            {
                 index++;
                 continue;
             }
 
-            var start = ParseTextTime(line[..arrow]);
-            var end = ParseTextTime(line[(arrow + 3)..]);
+            var arrow = timestamp.IndexOf("-->", StringComparison.Ordinal);
+            var start = ParseTextTime(timestamp[..arrow]);
+            var end = ParseTextTime(timestamp[(arrow + 3)..]);
 
-            index++;
+            // Body lines run until a blank line or the next cue. Plenty of real files put
+            // no blank line between cues, and treating that as one giant cue would count
+            // the index numbers and timestamps of the following cues as dialogue.
             var body = new List<string>();
-            while (index < lines.Length && lines[index].Trim().Length > 0)
+            while (index < lines.Length)
             {
-                body.Add(StripMarkup(lines[index]));
+                var current = lines[index];
+                var trimmed = current.Trim();
+
+                if (trimmed.Length == 0)
+                {
+                    index++;
+                    break;
+                }
+
+                if (StartsNextCue(lines, index))
+                {
+                    break;
+                }
+
+                body.Add(StripMarkup(current));
                 index++;
             }
 
@@ -266,6 +293,28 @@ public static class SubtitleContent
         }
 
         return cues;
+    }
+
+    /// <summary>
+    /// True when the line at <paramref name="index"/> opens a new cue: either a timestamp
+    /// line, or a cue index/id line whose successor is a timestamp.
+    /// </summary>
+    private static bool StartsNextCue(string[] lines, int index)
+    {
+        var current = lines[index];
+
+        if (current.Contains("-->", StringComparison.Ordinal))
+        {
+            return true;
+        }
+
+        var trimmed = current.Trim();
+        if (trimmed.Length == 0 || trimmed.Length > 16 || !trimmed.All(char.IsAsciiDigit))
+        {
+            return false;
+        }
+
+        return index + 1 < lines.Length && lines[index + 1].Contains("-->", StringComparison.Ordinal);
     }
 
     private static TimeSpan ParseAssTime(string value)

@@ -5,6 +5,35 @@ using Jellyfin.Plugin.ThunderSubtitle.Core;
 //   dotnet run --project tools/SubtitleProbe -- ABF-363 MIUM-1457 FSDSS-272
 // It prints the same ranking the scheduled task uses and writes the winner to a temp
 // folder, so decoding and format sniffing can be verified without a Jellyfin server.
+//
+// Measuring local files:
+//   dotnet run --project tools/SubtitleProbe -- --measure a.srt b.ass
+if (args.Length >= 2 && args[0] == "--measure")
+{
+    foreach (var path in args.Skip(1))
+    {
+        var text = File.ReadAllText(path);
+        var extension = Path.GetExtension(path);
+        var stats = SubtitleContent.Measure(text, extension);
+        var cues = SubtitleContent.Parse(text, extension);
+
+        Console.WriteLine($"{Path.GetFileName(path)}  {new FileInfo(path).Length} B  ext={extension}");
+        Console.WriteLine($"  language={SubtitleLanguageDetector.Detect(SubtitleContent.StripMarkup(text))}  cues={stats.CueCount}  contentChars={stats.ContentChars}  charsPerCue={(stats.CueCount == 0 ? 0 : (double)stats.ContentChars / stats.CueCount):F1}");
+        foreach (var cue in cues.Take(3))
+        {
+            Console.WriteLine($"  first: [{cue.Start:hh\\:mm\\:ss}] {cue.Text}");
+        }
+
+        if (cues.Count > 0)
+        {
+            var longest = cues.OrderByDescending(c => c.Text.Length).First();
+            Console.WriteLine($"  longest cue ({longest.Text.Length} chars): {longest.Text[..Math.Min(80, longest.Text.Length)]}");
+        }
+    }
+
+    return 0;
+}
+
 var codes = args.Length > 0 ? args : ["ABF-363", "MIUM-1457", "FSDSS-272"];
 var outputDirectory = Path.Combine(Path.GetTempPath(), "thunder-probe-" + DateTime.Now.ToString("yyyyMMdd-HHmmss"));
 Directory.CreateDirectory(outputDirectory);

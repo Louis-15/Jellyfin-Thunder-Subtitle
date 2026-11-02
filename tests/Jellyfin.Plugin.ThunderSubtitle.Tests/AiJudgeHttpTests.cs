@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Net;
 using System.Net.Sockets;
@@ -36,6 +36,7 @@ public class AiJudgeHttpTests
             "FSDSS-272",
             [Pick("a.srt", SrtA), Pick("b.srt", SrtB)],
             settings,
+            SubtitleLanguage.SimplifiedChinese,
             CancellationToken.None);
 
         Assert.NotNull(verdicts);
@@ -57,6 +58,7 @@ public class AiJudgeHttpTests
             "X-1",
             [Pick("a.srt", SrtA), Pick("b.srt", SrtB)],
             new AiSettings(stub.BaseUrl + "/v1", "wrong", "m", 8, 1000, 10),
+            SubtitleLanguage.SimplifiedChinese,
             CancellationToken.None);
 
         Assert.Null(verdicts);
@@ -72,6 +74,7 @@ public class AiJudgeHttpTests
             "X-1",
             [Pick("a.srt", SrtA), Pick("b.srt", SrtB)],
             new AiSettings(stub.BaseUrl + "/v1", string.Empty, "m", 8, 1000, 10),
+            SubtitleLanguage.SimplifiedChinese,
             CancellationToken.None);
 
         Assert.Null(verdicts);
@@ -87,6 +90,7 @@ public class AiJudgeHttpTests
             "X-1",
             [Pick("a.srt", SrtA)],
             new AiSettings(stub.BaseUrl + "/v1", "k", "m", 8, 1000, 10),
+            SubtitleLanguage.SimplifiedChinese,
             CancellationToken.None);
 
         Assert.Null(verdicts);

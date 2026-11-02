@@ -1,4 +1,4 @@
-using System.Collections.Generic;
+﻿using System.Collections.Generic;
 using System.Text.Json;
 using Jellyfin.Plugin.ThunderSubtitle.Core;
 using Xunit;

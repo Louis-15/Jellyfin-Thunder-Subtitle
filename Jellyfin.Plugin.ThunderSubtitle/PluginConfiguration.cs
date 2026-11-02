@@ -36,6 +36,12 @@ public class PluginConfiguration : BasePluginConfiguration
     public string LogLevel { get; set; } = "Information";
 
     /// <summary>
+    /// Gets or sets the Chinese form to prefer: <c>Simplified</c> (default) or
+    /// <c>Traditional</c>. Both are always acceptable; this only breaks the tie.
+    /// </summary>
+    public string PreferredLanguage { get; set; } = "Simplified";
+
+    /// <summary>
     /// Gets or sets a value indicating whether the largest finalists are sent to a chat
     /// model so it can tell a real translation from verbose machine output.
     /// </summary>
@@ -76,6 +82,15 @@ public class PluginConfiguration : BasePluginConfiguration
             : Core.PluginLogLevel.Information;
     }
 
+    /// <summary>Parses <see cref="PreferredLanguage"/> into the enum used by the ranker.</summary>
+    /// <returns>The preferred Chinese form.</returns>
+    public Core.SubtitleLanguage ResolvePreferredLanguage()
+    {
+        return string.Equals(PreferredLanguage, "Traditional", StringComparison.OrdinalIgnoreCase)
+            ? Core.SubtitleLanguage.TraditionalChinese
+            : Core.SubtitleLanguage.SimplifiedChinese;
+    }
+
     /// <summary>Returns the configured library ids that are valid GUIDs.</summary>
     /// <returns>The library ids.</returns>
     public IReadOnlyList<Guid> ResolveLibraryIds()
@@ -110,6 +125,7 @@ public class PluginConfiguration : BasePluginConfiguration
         RequestIntervalMs = Math.Clamp(RequestIntervalMs, 0, 10_000);
         LibraryIds ??= Array.Empty<string>();
         LogLevel ??= "Information";
+        PreferredLanguage ??= "Simplified";
 
         AiBaseUrl ??= string.Empty;
         AiApiKey ??= string.Empty;

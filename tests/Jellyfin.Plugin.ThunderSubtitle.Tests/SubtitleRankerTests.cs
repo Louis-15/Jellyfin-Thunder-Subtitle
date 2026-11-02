@@ -105,15 +105,15 @@ public class SubtitleRankerTests
         var text = Srt("你好");
         var pick = Pick("a.srt", text);
 
-        Assert.False(SubtitleRanker.IsUpgrade(pick, pick.Stats, SubtitleText.Hash(text), 0));
+        Assert.False(SubtitleRanker.IsUpgrade(pick, new ExistingSubtitle(pick.Stats, pick.Language, SubtitleText.Hash(text), 0), SubtitleLanguage.SimplifiedChinese));
     }
 
     [Fact]
     public void FewerMarkersWinsRegardlessOfVolume()
     {
         var ai = Pick("x.[MT].srt", Srt(new string('甲', 400)));
-        Assert.True(SubtitleRanker.IsUpgrade(ai, new SubtitleStats(1, 10), null, 1));
-        Assert.False(SubtitleRanker.IsUpgrade(ai, new SubtitleStats(1, 10_000), null, 0));
+        Assert.True(SubtitleRanker.IsUpgrade(ai, new ExistingSubtitle(new SubtitleStats(1, 10), SubtitleLanguage.SimplifiedChinese, null, 1), SubtitleLanguage.SimplifiedChinese));
+        Assert.False(SubtitleRanker.IsUpgrade(ai, new ExistingSubtitle(new SubtitleStats(1, 10_000), SubtitleLanguage.SimplifiedChinese, null, 0), SubtitleLanguage.SimplifiedChinese));
     }
 
     [Fact]
@@ -122,9 +122,9 @@ public class SubtitleRankerTests
         var text = Srt(new string('字', 1400));
         var pick = Pick("NIMA-086.srt", text);
 
-        Assert.False(SubtitleRanker.IsUpgrade(pick, new SubtitleStats(1, 1390), null, 0));
-        Assert.False(SubtitleRanker.IsUpgrade(pick, new SubtitleStats(1, 1350), null, 0));
-        Assert.True(SubtitleRanker.IsUpgrade(pick, new SubtitleStats(1, 700), null, 0));
+        Assert.False(SubtitleRanker.IsUpgrade(pick, new ExistingSubtitle(new SubtitleStats(1, 1390), SubtitleLanguage.SimplifiedChinese, null, 0), SubtitleLanguage.SimplifiedChinese));
+        Assert.False(SubtitleRanker.IsUpgrade(pick, new ExistingSubtitle(new SubtitleStats(1, 1350), SubtitleLanguage.SimplifiedChinese, null, 0), SubtitleLanguage.SimplifiedChinese));
+        Assert.True(SubtitleRanker.IsUpgrade(pick, new ExistingSubtitle(new SubtitleStats(1, 700), SubtitleLanguage.SimplifiedChinese, null, 0), SubtitleLanguage.SimplifiedChinese));
     }
 
     [Fact]

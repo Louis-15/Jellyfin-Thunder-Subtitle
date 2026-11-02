@@ -19,6 +19,7 @@ public sealed record SubtitlePick
         Text = text;
         EncodingName = encodingName;
         Stats = SubtitleContent.Measure(text, extension);
+        Language = SubtitleLanguageDetector.Detect(SubtitleContent.StripMarkup(text));
     }
 
     /// <summary>Gets the name the API reported, shown in the log.</summary>
@@ -35,6 +36,9 @@ public sealed record SubtitlePick
 
     /// <summary>Gets the dialogue volume, the format independent measure used for ranking.</summary>
     public SubtitleStats Stats { get; }
+
+    /// <summary>Gets the detected language of the subtitle.</summary>
+    public SubtitleLanguage Language { get; }
 
     /// <summary>Gets the number of machine-translation markers found in the candidate name.</summary>
     public int AiMarkers => SubtitleRanker.CountAiMarkers(CandidateName);
@@ -56,10 +60,23 @@ public sealed record SubtitlePick
     public IReadOnlyList<SubtitleCue> Cues() => SubtitleContent.Parse(Text, Extension);
 }
 
+/// <summary>What is already on disk for an item.</summary>
+/// <param name="Stats">Dialogue volume.</param>
+/// <param name="Language">Detected language.</param>
+/// <param name="Hash">Content hash, when the file could be decoded.</param>
+/// <param name="AiMarkers">Machine-translation markers, when the provenance ledger knows them.</param>
+public sealed record ExistingSubtitle(SubtitleStats Stats, SubtitleLanguage Language, string? Hash, int? AiMarkers);
+
+/// <summary>What the model decided about one candidate.</summary>
+/// <param name="Id">The 1-based id used in the prompt.</param>
+/// <param name="Score">Usability score, 0-100, higher is better.</param>
+/// <param name="MachineTranslated">Whether the model believes it is machine translated or auto-captioned.</param>
+/// <param name="Reason">Short justification, kept for the log.</param>
+public sealed record AiVerdict(int Id, double Score, bool MachineTranslated, string Reason);
+
 /// <summary>
 /// Picks the best candidate. The Xunlei API returns <c>score</c> and
-/// <c>fingerprintf_score</c> but both are always 0, so ranking is done locally:
-/// machine translations first (worst), then file size (a complete transcript is bigger).
+/// <c>fingerprintf_score</c> but both are always 0, so ranking is done locally.
 /// </summary>
 public static class SubtitleRanker
 {
@@ -114,11 +131,50 @@ public static class SubtitleRanker
         return System.Text.Encoding.UTF8.GetByteCount(SubtitleText.Normalize(text));
     }
 
-    /// <summary>Drops duplicate content and orders the survivors best-first.</summary>
+    /// <summary>Result of dropping the candidates that are not Chinese.</summary>
+    /// <param name="Kept">Candidates that may enter the comparison.</param>
+    /// <param name="Dropped">How many of each language were dropped, for the log.</param>
+    public sealed record ChineseFilterResult(
+        IReadOnlyList<SubtitlePick> Kept,
+        IReadOnlyDictionary<SubtitleLanguage, int> Dropped);
+
+    /// <summary>
+    /// Keeps only Simplified and Traditional Chinese. This runs before any ranking: an
+    /// English subtitle carries far more letters per kilobyte than a Chinese one, so a
+    /// character-based comparison without this filter quietly prefers the wrong language.
+    /// </summary>
+    /// <param name="candidates">Downloaded candidates.</param>
+    /// <returns>The Chinese candidates and the per-language drop counts.</returns>
+    public static ChineseFilterResult KeepChineseOnly(IEnumerable<SubtitlePick> candidates)
+    {
+        var kept = new List<SubtitlePick>();
+        var dropped = new Dictionary<SubtitleLanguage, int>();
+
+        foreach (var candidate in candidates)
+        {
+            if (SubtitleLanguageDetector.IsChinese(candidate.Language))
+            {
+                kept.Add(candidate);
+                continue;
+            }
+
+            dropped[candidate.Language] = dropped.TryGetValue(candidate.Language, out var count) ? count + 1 : 1;
+        }
+
+        return new ChineseFilterResult(kept, dropped);
+    }
+
+    /// <summary>
+    /// Drops duplicate content and orders the survivors best-first.
+    /// </summary>
     /// <param name="candidates">Downloaded candidates.</param>
     /// <param name="requestedCode">The code the search used; when set, candidates for other codes are dropped.</param>
+    /// <param name="preferred">The Chinese form to prefer when both are present.</param>
     /// <returns>The ranked, de-duplicated candidates.</returns>
-    public static IReadOnlyList<SubtitlePick> Rank(IEnumerable<SubtitlePick> candidates, string? requestedCode = null)
+    public static IReadOnlyList<SubtitlePick> Rank(
+        IEnumerable<SubtitlePick> candidates,
+        string? requestedCode = null,
+        SubtitleLanguage preferred = SubtitleLanguage.SimplifiedChinese)
     {
         var key = requestedCode is null ? null : JavCode.CompareKey(requestedCode);
         var seen = new HashSet<string>(StringComparer.Ordinal);
@@ -133,6 +189,10 @@ public static class SubtitleRanker
             // A name that carries the code proves the release; a hash name does not.
             .OrderBy(entry => entry.Code is null ? 1 : 0)
             .ThenBy(entry => entry.Pick.AiMarkers)
+
+            // A human Traditional translation still beats a machine Simplified one, so
+            // language comes after the marker count and before the volume.
+            .ThenBy(entry => entry.Pick.Language == preferred ? 0 : 1)
 
             // Dialogue volume, not file size: an ASS wrapper or a BOM must not win.
             .ThenByDescending(entry => entry.Pick.ContentChars)
@@ -214,26 +274,45 @@ public static class SubtitleRanker
     /// already on disk.
     /// </summary>
     /// <param name="candidate">The freshly ranked best candidate.</param>
-    /// <param name="existing">Dialogue volume of the file on disk.</param>
-    /// <param name="existingHash">Hash of the file on disk, when it could be decoded.</param>
-    /// <param name="existingAiMarkers">Markers recorded for the file on disk, when known.</param>
+    /// <param name="existing">What is on disk: volume, language, hash and marker count.</param>
+    /// <param name="preferred">The Chinese form the user prefers.</param>
     /// <returns><c>true</c> when the candidate is an upgrade.</returns>
-    public static bool IsUpgrade(SubtitlePick candidate, SubtitleStats existing, string? existingHash, int? existingAiMarkers)
+    public static bool IsUpgrade(SubtitlePick candidate, ExistingSubtitle existing, SubtitleLanguage preferred)
     {
-        if (existingHash is not null && string.Equals(existingHash, candidate.Hash, StringComparison.Ordinal))
+        if (existing.Hash is not null && string.Equals(existing.Hash, candidate.Hash, StringComparison.Ordinal))
         {
             return false;
         }
 
-        // Trading a machine translation for a human subtitle is always worth a rewrite.
-        if (existingAiMarkers.HasValue && candidate.AiMarkers < existingAiMarkers.Value)
+        // A file in the wrong language is not a subtitle the user can read: replace it
+        // even when it is larger. This is what repairs an English file written by an
+        // earlier version.
+        if (!SubtitleLanguageDetector.IsChinese(existing.Language))
         {
             return true;
         }
 
+        // Trading a machine translation for a human subtitle is always worth a rewrite.
+        if (existing.AiMarkers.HasValue && candidate.AiMarkers < existing.AiMarkers.Value)
+        {
+            return true;
+        }
+
+        // The user explicitly prefers one Chinese form; only the opposite form existing
+        // is reason enough to switch, and the opposite form must never replace it.
+        if (candidate.Language == preferred && existing.Language != preferred)
+        {
+            return true;
+        }
+
+        if (candidate.Language != preferred && existing.Language == preferred)
+        {
+            return false;
+        }
+
         // Otherwise a re-upload with a slightly longer line is churn, not an upgrade.
         // Compare dialogue characters so an ASS-to-SRT switch does not look like growth.
-        var threshold = Math.Max(MinimumGrowthChars, (int)(existing.ContentChars * MinimumGrowthRatio));
-        return candidate.ContentChars > existing.ContentChars + threshold;
+        var threshold = Math.Max(MinimumGrowthChars, (int)(existing.Stats.ContentChars * MinimumGrowthRatio));
+        return candidate.ContentChars > existing.Stats.ContentChars + threshold;
     }
 }

@@ -17,7 +17,9 @@
   <ItemGroup>
     <Compile Include="..\..\Jellyfin.Plugin.ThunderSubtitle\Core\JavCode.cs" Link="Core\JavCode.cs" />
     <Compile Include="..\..\Jellyfin.Plugin.ThunderSubtitle\Core\SubtitleText.cs" Link="Core\SubtitleText.cs" />
+    <Compile Include="..\..\Jellyfin.Plugin.ThunderSubtitle\Core\SubtitleContent.cs" Link="Core\SubtitleContent.cs" />
     <Compile Include="..\..\Jellyfin.Plugin.ThunderSubtitle\Core\SubtitleRanker.cs" Link="Core\SubtitleRanker.cs" />
+    <Compile Include="..\..\Jellyfin.Plugin.ThunderSubtitle\Core\SubtitleLanguage.cs" Link="Core\SubtitleLanguage.cs" />
     <Compile Include="..\..\Jellyfin.Plugin.ThunderSubtitle\Core\ThunderClient.cs" Link="Core\ThunderClient.cs" />
   </ItemGroup>
 

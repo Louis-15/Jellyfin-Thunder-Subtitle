@@ -92,6 +92,23 @@
                 </div>
 
                 <div class="ts-section">
+                    <div class="sectionTitleContainer flex align-items-center">
+                        <h3 class="sectionTitle">中文语言偏好</h3>
+                    </div>
+                    <div class="selectContainer">
+                        <label class="selectLabel" for="PreferredLanguage">优先语言</label>
+                        <select is="emby-select" id="PreferredLanguage" class="emby-select-withcolor">
+                            <option value="Simplified">简体中文（推荐）</option>
+                            <option value="Traditional">繁体中文</option>
+                        </select>
+                        <div class="fieldDescription">
+                            <strong>只有简体中文和繁体中文的候选会进入对比</strong>，英文、日文等直接丢弃。
+                            选中的这一种优先；没有合适的时才用另一种。
+                        </div>
+                    </div>
+                </div>
+
+                <div class="ts-section">
                     <div class="ts-grid">
                         <div class="inputContainer">
                             <label class="inputLabel inputLabelUnfocused" for="MaxItemsPerRun">单次上限（条）</label>
@@ -297,6 +314,7 @@
                     byId('MaxCandidates').value = cfg.MaxCandidates || 25;
                     byId('RequestIntervalMs').value = cfg.RequestIntervalMs != null ? cfg.RequestIntervalMs : 500;
                     byId('LogLevel').value = cfg.LogLevel || 'Information';
+                    byId('PreferredLanguage').value = cfg.PreferredLanguage || 'Simplified';
                     byId('AiEnabled').checked = cfg.AiEnabled === true;
                     byId('AiBaseUrl').value = cfg.AiBaseUrl || '';
                     byId('AiApiKey').value = cfg.AiApiKey || '';
@@ -364,6 +382,7 @@
                     cfg.RequestIntervalMs = isNaN(interval) || interval < 0 ? 500 : interval;
 
                     cfg.LogLevel = byId('LogLevel').value || 'Information';
+                    cfg.PreferredLanguage = byId('PreferredLanguage').value || 'Simplified';
 
                     cfg.AiEnabled = byId('AiEnabled').checked;
                     cfg.AiBaseUrl = byId('AiBaseUrl').value.trim();

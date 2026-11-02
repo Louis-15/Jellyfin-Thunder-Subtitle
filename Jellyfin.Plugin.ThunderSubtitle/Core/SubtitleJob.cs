@@ -350,16 +350,32 @@ public sealed class SubtitleJob
             return ProcessResult.NoCandidates;
         }
 
-        var ranked = SubtitleRanker.Rank(downloaded, code);
-        if (ranked.Count == 0)
+        // Only Simplified and Traditional Chinese may enter the comparison. English and
+        // Japanese candidates are dropped here, before any size or score is looked at.
+        var preferred = config.ResolvePreferredLanguage();
+        var chinese = SubtitleRanker.KeepChineseOnly(downloaded);
+        if (chinese.Dropped.Count > 0)
         {
-            _log.Warn($"{Display(item)} [{code}]：下载到的 {downloaded.Count} 条候选全部属于其它番号，已全部丢弃。");
+            var detail = string.Join(" / ", chinese.Dropped.Select(pair => $"{Describe(pair.Key)} {pair.Value}"));
+            _log.Info($"{Display(item)} [{code}]：丢弃非中文候选 {chinese.Dropped.Values.Sum()} 条（{detail}）。");
+        }
+
+        if (chinese.Kept.Count == 0)
+        {
+            _log.Warn($"{Display(item)} [{code}]：下载到的 {downloaded.Count} 条候选都不是简体/繁体中文，本轮不写字幕。");
             return ProcessResult.NoCandidates;
         }
 
-        var best = await PickBestAsync(item, code, ranked, config, cancellationToken).ConfigureAwait(false);
+        var ranked = SubtitleRanker.Rank(chinese.Kept, code, preferred);
+        if (ranked.Count == 0)
+        {
+            _log.Warn($"{Display(item)} [{code}]：{chinese.Kept.Count} 条中文候选全部属于其它番号，已全部丢弃。");
+            return ProcessResult.NoCandidates;
+        }
 
-        _log.Info($"{Display(item)} [{code}]：最优「{best.CandidateName}」（{best.ContentChars} 字 / {best.CueCount} 条，{best.Bytes} B，{best.Extension}，{best.EncodingName}，AI标记 {best.AiMarkers}）。");
+        var best = await PickBestAsync(item, code, ranked, config, preferred, cancellationToken).ConfigureAwait(false);
+
+        _log.Info($"{Display(item)} [{code}]：最优「{best.CandidateName}」（{Describe(best.Language)}，{best.ContentChars} 字 / {best.CueCount} 条，{best.Bytes} B，{best.Extension}，{best.EncodingName}，AI标记 {best.AiMarkers}）。");
 
         if (existing is not null)
         {
@@ -369,18 +385,22 @@ public sealed class SubtitleJob
             var existingStats = existingText is null
                 ? new SubtitleStats(0, Math.Max(0, (int)(existingBytes / 3)))
                 : SubtitleContent.Measure(existingText, Path.GetExtension(existing));
+            var existingLanguage = existingText is null
+                ? SubtitleLanguage.Unknown
+                : SubtitleLanguageDetector.Detect(SubtitleContent.StripMarkup(existingText));
             var record = _provenance.Get(ItemKey(item));
             var knownMarkers = record is not null && string.Equals(record.File, existing, StringComparison.Ordinal)
                 ? record.AiMarkers
                 : (int?)null;
 
-            if (!SubtitleRanker.IsUpgrade(best, existingStats, existingHash, knownMarkers))
+            var onDisk = new ExistingSubtitle(existingStats, existingLanguage, existingHash, knownMarkers);
+            if (!SubtitleRanker.IsUpgrade(best, onDisk, preferred))
             {
-                _log.Info($"{Display(item)} [{code}]：现有「{Path.GetFileName(existing)}」{existingStats.ContentChars} 字 / {existingBytes} B 不差于候选，保留。");
+                _log.Info($"{Display(item)} [{code}]：现有「{Path.GetFileName(existing)}」{Describe(existingLanguage)} {existingStats.ContentChars} 字 / {existingBytes} B 不差于候选，保留。");
                 return ProcessResult.KeptExisting;
             }
 
-            _log.Info($"{Display(item)} [{code}]：升级「{Path.GetFileName(existing)}」{existingStats.ContentChars} 字 → {best.ContentChars} 字（{existingBytes} B → {best.Bytes} B）。");
+            _log.Info($"{Display(item)} [{code}]：升级「{Path.GetFileName(existing)}」{Describe(existingLanguage)} {existingStats.ContentChars} 字 → {Describe(best.Language)} {best.ContentChars} 字（{existingBytes} B → {best.Bytes} B）。");
         }
 
         var target = Sidecar.TargetPath(mediaPath, best.Extension);
@@ -417,6 +437,7 @@ public sealed class SubtitleJob
         string code,
         IReadOnlyList<SubtitlePick> ranked,
         PluginConfiguration config,
+        SubtitleLanguage preferred,
         CancellationToken cancellationToken)
     {
         var best = ranked[0];
@@ -431,11 +452,11 @@ public sealed class SubtitleJob
         }
 
         var shortlist = ranked.Take(Math.Min(config.AiTopCandidates, ranked.Count)).ToList();
-        _log.Info($"{Display(item)} [{code}]：有效 {ranked.Count} 条，字符数前 {shortlist.Count} 名："
-                  + string.Join(" / ", shortlist.Select((pick, index) => $"#{index + 1} {pick.CandidateName}（{pick.ContentChars} 字 / {pick.CueCount} 条）")));
+        _log.Info($"{Display(item)} [{code}]：中文候选 {ranked.Count} 条，字符数前 {shortlist.Count} 名："
+                  + string.Join(" / ", shortlist.Select((pick, index) => $"#{index + 1} {pick.CandidateName}（{Describe(pick.Language)} {pick.ContentChars} 字）")));
 
         var verdicts = await _ai
-            .JudgeAsync(code, shortlist, AiSettings.From(config), cancellationToken)
+            .JudgeAsync(code, shortlist, AiSettings.From(config), preferred, cancellationToken)
             .ConfigureAwait(false);
 
         if (verdicts is null)
@@ -575,6 +596,18 @@ public sealed class SubtitleJob
     }
 
     private static string ItemKey(BaseItem item) => item.Id.ToString("N");
+
+    /// <summary>Human readable language name for the log.</summary>
+    private static string Describe(SubtitleLanguage language) => language switch
+    {
+        SubtitleLanguage.SimplifiedChinese => "简体",
+        SubtitleLanguage.TraditionalChinese => "繁体",
+        SubtitleLanguage.Japanese => "日文",
+        SubtitleLanguage.Korean => "韩文",
+        SubtitleLanguage.English => "英文",
+        SubtitleLanguage.Other => "其它语言",
+        _ => "语言未知"
+    };
 
     private static string Display(BaseItem item)
     {
