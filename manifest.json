@@ -9,12 +9,12 @@
     "imageUrl": "https://raw.githubusercontent.com/Louis-15/Jellyfin-Thunder-Subtitle/main/logo.png",
     "versions": [
       {
-        "version": "1.3.0.0",
-        "changelog": "Release 1.3.0.0\n\n超时改为按请求设置：搜索 20 秒、单条下载 15 秒，不再用全局 60 秒；候选改为并发下载（默认 4 路），并给每部影片加 90 秒总预算，到点用手上已有的候选排序。修复一部慢速 CDN 的影片能把整个任务卡住十几分钟的问题。",
+        "version": "1.3.1.0",
+        "changelog": "Release 1.3.1.0\n\n单次处理上限默认值从 20 改为 5：引入 AI 评审后每部影片要多一次模型调用，一次跑太多容易长尾；需要批量补历史时可在配置页临时调大。",
         "targetAbi": "12.2.0.0",
-        "sourceUrl": "https://github.com/Louis-15/Jellyfin-Thunder-Subtitle/releases/download/v1.3.0.0/thunder-subtitle_1.3.0.0.zip",
-        "checksum": "9f623ac22a7b2c452901ac4383afbaad",
-        "timestamp": "2026-11-02T15:32:58Z"
+        "sourceUrl": "https://github.com/Louis-15/Jellyfin-Thunder-Subtitle/releases/download/v1.3.1.0/thunder-subtitle_1.3.1.0.zip",
+        "checksum": "33735c0a223f30e7ced215b0a00becbe",
+        "timestamp": "2026-11-02T15:40:51Z"
       }
     ]
   }
