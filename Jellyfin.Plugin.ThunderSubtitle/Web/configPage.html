@@ -123,7 +123,17 @@
                         <div class="inputContainer">
                             <label class="inputLabel inputLabelUnfocused" for="RequestIntervalMs">请求间隔（毫秒）</label>
                             <input is="emby-input" id="RequestIntervalMs" type="number" min="0" max="10000" step="50" />
-                            <div class="fieldDescription">两次搜索之间的等待时间，避免请求过快。</div>
+                            <div class="fieldDescription">两次<strong>搜索</strong>之间的等待时间，避免请求过快。</div>
+                        </div>
+                        <div class="inputContainer">
+                            <label class="inputLabel inputLabelUnfocused" for="DownloadConcurrency">下载并发数</label>
+                            <input is="emby-input" id="DownloadConcurrency" type="number" min="1" max="8" step="1" />
+                            <div class="fieldDescription">同时下载多少条候选，1~8，默认 4。</div>
+                        </div>
+                        <div class="inputContainer">
+                            <label class="inputLabel inputLabelUnfocused" for="ItemBudgetSeconds">单部影片下载预算（秒）</label>
+                            <input is="emby-input" id="ItemBudgetSeconds" type="number" min="20" max="600" step="10" />
+                            <div class="fieldDescription">到点就用手上已下载的候选排序，不再等慢 CDN。</div>
                         </div>
                         <div class="selectContainer">
                             <label class="selectLabel" for="LogLevel">日志级别</label>
@@ -313,6 +323,8 @@
                     byId('MaxItemsPerRun').value = cfg.MaxItemsPerRun || 20;
                     byId('MaxCandidates').value = cfg.MaxCandidates || 25;
                     byId('RequestIntervalMs').value = cfg.RequestIntervalMs != null ? cfg.RequestIntervalMs : 500;
+                    byId('DownloadConcurrency').value = cfg.DownloadConcurrency || 4;
+                    byId('ItemBudgetSeconds').value = cfg.ItemBudgetSeconds || 90;
                     byId('LogLevel').value = cfg.LogLevel || 'Information';
                     byId('PreferredLanguage').value = cfg.PreferredLanguage || 'Simplified';
                     byId('AiEnabled').checked = cfg.AiEnabled === true;
@@ -380,6 +392,12 @@
 
                     var interval = parseInt(byId('RequestIntervalMs').value, 10);
                     cfg.RequestIntervalMs = isNaN(interval) || interval < 0 ? 500 : interval;
+
+                    var concurrency = parseInt(byId('DownloadConcurrency').value, 10);
+                    cfg.DownloadConcurrency = isNaN(concurrency) ? 4 : Math.min(8, Math.max(1, concurrency));
+
+                    var itemBudget = parseInt(byId('ItemBudgetSeconds').value, 10);
+                    cfg.ItemBudgetSeconds = isNaN(itemBudget) ? 90 : Math.min(600, Math.max(20, itemBudget));
 
                     cfg.LogLevel = byId('LogLevel').value || 'Information';
                     cfg.PreferredLanguage = byId('PreferredLanguage').value || 'Simplified';

@@ -304,45 +304,66 @@ public sealed class SubtitleJob
 
         _log.Info($"{Display(item)} [{code}]：候选 {candidates.Count} 条，可下载 {accepted.Count} 条（已丢弃不支持或超出上限的 {candidates.Count - accepted.Count} 条）。");
 
-        var downloaded = new List<SubtitlePick>(accepted.Count);
-        foreach (var candidate in accepted)
+        // Download in parallel with a hard budget for the whole item. Sequentially, one
+        // slow CDN edge per candidate could stall a run for tens of minutes.
+        var picks = new SubtitlePick?[accepted.Count];
+        var skipped = 0;
+        var started = Stopwatch.StartNew();
+
+        using var budget = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        budget.CancelAfter(TimeSpan.FromSeconds(config.ItemBudgetSeconds));
+        using var gate = new SemaphoreSlim(Math.Clamp(config.DownloadConcurrency, 1, 8));
+
+        await Task.WhenAll(accepted.Select(async (candidate, index) =>
         {
-            cancellationToken.ThrowIfCancellationRequested();
             try
             {
-                var bytes = await _thunder.DownloadAsync(candidate.Uri, cancellationToken).ConfigureAwait(false);
+                await gate.WaitAsync(budget.Token).ConfigureAwait(false);
+            }
+            catch (OperationCanceledException)
+            {
+                Interlocked.Increment(ref skipped);
+                return;
+            }
+
+            try
+            {
+                var bytes = await _thunder.DownloadAsync(candidate.Uri, budget.Token).ConfigureAwait(false);
                 var decoded = SubtitleText.TryDecode(bytes);
                 if (decoded is null)
                 {
                     _log.Debug($"  - 丢弃（无法解码）：{candidate.Name}");
-                    continue;
+                    return;
                 }
 
                 var extension = SubtitleText.DetectExtension(decoded.Text, candidate.Extension);
                 if (extension is null)
                 {
                     _log.Debug($"  - 丢弃（内容不是字幕）：{candidate.Name}");
-                    continue;
+                    return;
                 }
 
                 var pick = new SubtitlePick(candidate.Name, extension, decoded.Text, decoded.EncodingName);
-                downloaded.Add(pick);
-                _log.Debug($"  + {pick.CandidateName}（{pick.Bytes} B，{pick.Extension}，{pick.EncodingName}，AI标记 {pick.AiMarkers}）");
+                picks[index] = pick;
+                _log.Debug($"  + {pick.CandidateName}（{Describe(pick.Language)}，{pick.ContentChars} 字，{pick.Bytes} B，{pick.Extension}，{pick.EncodingName}，AI标记 {pick.AiMarkers}）");
             }
-            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+            catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
             {
-                throw;
+                Interlocked.Increment(ref skipped);
             }
             catch (Exception ex)
             {
                 _log.Debug($"  - 下载失败：{candidate.Name} - {ex.Message}");
             }
-
-            if (config.RequestIntervalMs > 0)
+            finally
             {
-                await Task.Delay(Math.Min(config.RequestIntervalMs, 200), cancellationToken).ConfigureAwait(false);
+                gate.Release();
             }
-        }
+        })).ConfigureAwait(false);
+
+        var downloaded = picks.Where(pick => pick is not null).Select(pick => pick!).ToList();
+        _log.Info($"{Display(item)} [{code}]：下载 {accepted.Count} 条候选耗时 {started.Elapsed.TotalSeconds:F1} 秒（并发 {config.DownloadConcurrency}）"
+                  + (skipped > 0 ? $"，预算 {config.ItemBudgetSeconds} 秒用尽/超时跳过 {skipped} 条" : string.Empty) + "。");
 
         if (downloaded.Count == 0)
         {

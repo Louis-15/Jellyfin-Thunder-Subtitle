@@ -17,7 +17,7 @@ public sealed class PluginServiceRegistrator : IPluginServiceRegistrator
     {
         SubtitleText.RegisterEncodings();
 
-        services.AddSingleton(_ => new ThunderClient(ThunderClient.CreateDefaultClient()));
+        services.AddSingleton<ThunderClient>();
         services.AddSingleton<ProvenanceStore>();
         services.AddSingleton<AiSubtitleJudge>();
         services.AddSingleton<SubtitleJob>();

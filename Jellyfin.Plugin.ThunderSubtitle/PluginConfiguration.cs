@@ -25,6 +25,15 @@ public class PluginConfiguration : BasePluginConfiguration
     /// <summary>Gets or sets the pause between two requests to the Xunlei API, in milliseconds.</summary>
     public int RequestIntervalMs { get; set; } = 500;
 
+    /// <summary>Gets or sets how many candidates are downloaded at the same time.</summary>
+    public int DownloadConcurrency { get; set; } = 4;
+
+    /// <summary>
+    /// Gets or sets the total time budget for one item's downloads. Whatever arrived by
+    /// then is ranked; the rest is abandoned instead of stalling the whole run.
+    /// </summary>
+    public int ItemBudgetSeconds { get; set; } = 90;
+
     /// <summary>
     /// Gets or sets a value indicating whether the fill task may replace a
     /// <c>&lt;name&gt;.chi.*</c> subtitle it (or the old python script) wrote earlier.
@@ -123,6 +132,8 @@ public class PluginConfiguration : BasePluginConfiguration
 
         MaxCandidates = Math.Min(MaxCandidates, 100);
         RequestIntervalMs = Math.Clamp(RequestIntervalMs, 0, 10_000);
+        DownloadConcurrency = Math.Clamp(DownloadConcurrency, 1, 8);
+        ItemBudgetSeconds = Math.Clamp(ItemBudgetSeconds, 20, 600);
         LibraryIds ??= Array.Empty<string>();
         LogLevel ??= "Information";
         PreferredLanguage ??= "Simplified";

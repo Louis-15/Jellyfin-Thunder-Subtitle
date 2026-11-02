@@ -37,10 +37,25 @@ public sealed record ThunderCandidate(Uri Uri, string Name, string Extension);
 /// Client for <c>https://api-shoulei-ssl.xunlei.com/oracle/subtitle?name=&lt;code&gt;</c>.
 /// The endpoint needs no authentication but does want a normal User-Agent.
 /// </summary>
-public sealed class ThunderClient : IDisposable
+/// <remarks>
+/// Timeouts are per request rather than on the client: the search is one small JSON
+/// document, while a download is a 10-100 KB file on a CDN that occasionally hangs. One
+/// global HttpClient.Timeout has to be as slow as the worst case, which is how a single
+/// stuck item used to block a whole run for tens of minutes.
+/// </remarks>
+public sealed class ThunderClient
 {
     /// <summary>The search endpoint; the code is appended URL-encoded.</summary>
     public const string SearchEndpoint = "https://api-shoulei-ssl.xunlei.com/oracle/subtitle?name=";
+
+    /// <summary>Time allowed for the search request. The API answers in well under a second.</summary>
+    public static readonly TimeSpan SearchTimeout = TimeSpan.FromSeconds(20);
+
+    /// <summary>
+    /// Time allowed for one subtitle download. A candidate is 10-100 KB, so anything
+    /// slower than this is a broken CDN edge, not a big file.
+    /// </summary>
+    public static readonly TimeSpan DownloadTimeout = TimeSpan.FromSeconds(15);
 
     private static readonly string[] AllowedHostSuffixes = ["xunlei.com", "sandai.net", "geilijiasu.com"];
 
@@ -49,41 +64,7 @@ public sealed class ThunderClient : IDisposable
         PropertyNameCaseInsensitive = true
     };
 
-    private readonly HttpClient _http;
-    private readonly bool _ownsClient;
-
-    /// <summary>Initializes a new instance of the <see cref="ThunderClient"/> class.</summary>
-    /// <param name="httpClient">The HTTP client to use, or <c>null</c> to create one.</param>
-    public ThunderClient(HttpClient? httpClient = null)
-    {
-        if (httpClient is null)
-        {
-            _http = CreateDefaultClient();
-            _ownsClient = true;
-        }
-        else
-        {
-            _http = httpClient;
-        }
-    }
-
-    /// <summary>Creates the client configuration Jellyfin plugins normally use.</summary>
-    /// <returns>A configured <see cref="HttpClient"/>.</returns>
-    public static HttpClient CreateDefaultClient()
-    {
-        var client = new HttpClient(new SocketsHttpHandler
-        {
-            AllowAutoRedirect = true,
-            AutomaticDecompression = System.Net.DecompressionMethods.All,
-            ConnectTimeout = TimeSpan.FromSeconds(15)
-        })
-        {
-            Timeout = TimeSpan.FromSeconds(60)
-        };
-
-        client.DefaultRequestHeaders.UserAgent.ParseAdd("Jellyfin.Plugin.ThunderSubtitle/1.0.0.0");
-        return client;
-    }
+    private static readonly HttpClient Http = CreateHttpClient();
 
     /// <summary>Searches the Xunlei API by JAV code.</summary>
     /// <param name="code">The code, e.g. <c>ABF-363</c>.</param>
@@ -91,58 +72,68 @@ public sealed class ThunderClient : IDisposable
     /// <returns>The candidates the API reported, with unusable URLs already dropped.</returns>
     public async Task<IReadOnlyList<ThunderCandidate>> SearchAsync(string code, CancellationToken cancellationToken)
     {
+        using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        timeout.CancelAfter(SearchTimeout);
+
         var url = SearchEndpoint + Uri.EscapeDataString(code);
-        using var response = await _http
-            .GetAsync(url, HttpCompletionOption.ResponseHeadersRead, cancellationToken)
-            .ConfigureAwait(false);
-
-        if (!response.IsSuccessStatusCode)
-        {
-            throw new ThunderException($"迅雷字幕查询失败：HTTP {(int)response.StatusCode}");
-        }
-
-        ThunderResponse? payload;
         try
         {
-            await using var stream = await response.Content.ReadAsStreamAsync(cancellationToken).ConfigureAwait(false);
-            payload = await JsonSerializer.DeserializeAsync<ThunderResponse>(stream, JsonOptions, cancellationToken)
+            using var response = await Http
+                .GetAsync(url, HttpCompletionOption.ResponseHeadersRead, timeout.Token)
                 .ConfigureAwait(false);
-        }
-        catch (JsonException ex)
-        {
-            throw new ThunderException("迅雷字幕返回的数据无法解析。", ex);
-        }
 
-        if (payload is null)
-        {
-            throw new ThunderException("迅雷字幕返回了空响应。");
-        }
-
-        if (payload.Code != 0 || !string.Equals(payload.Result, "ok", StringComparison.OrdinalIgnoreCase))
-        {
-            throw new ThunderException($"迅雷字幕返回异常：code={payload.Code} result={payload.Result}");
-        }
-
-        var candidates = new List<ThunderCandidate>();
-        foreach (var item in payload.Data ?? [])
-        {
-            if (string.IsNullOrWhiteSpace(item.Url)
-                || !Uri.TryCreate(item.Url, UriKind.Absolute, out var uri)
-                || !IsAllowedUri(uri))
+            if (!response.IsSuccessStatusCode)
             {
-                continue;
+                throw new ThunderException($"迅雷字幕查询失败：HTTP {(int)response.StatusCode}");
             }
 
-            var extension = SubtitleText.NormalizeExtension(item.Ext);
-            if (extension.Length == 0)
+            ThunderResponse? payload;
+            try
             {
-                extension = SubtitleText.NormalizeExtension(Path.GetExtension(item.Name ?? string.Empty));
+                await using var stream = await response.Content.ReadAsStreamAsync(timeout.Token).ConfigureAwait(false);
+                payload = await JsonSerializer.DeserializeAsync<ThunderResponse>(stream, JsonOptions, timeout.Token)
+                    .ConfigureAwait(false);
+            }
+            catch (JsonException ex)
+            {
+                throw new ThunderException("迅雷字幕返回的数据无法解析。", ex);
             }
 
-            candidates.Add(new ThunderCandidate(uri, item.Name ?? "未命名字幕", extension));
-        }
+            if (payload is null)
+            {
+                throw new ThunderException("迅雷字幕返回了空响应。");
+            }
 
-        return candidates;
+            if (payload.Code != 0 || !string.Equals(payload.Result, "ok", StringComparison.OrdinalIgnoreCase))
+            {
+                throw new ThunderException($"迅雷字幕返回异常：code={payload.Code} result={payload.Result}");
+            }
+
+            var candidates = new List<ThunderCandidate>();
+            foreach (var item in payload.Data ?? [])
+            {
+                if (string.IsNullOrWhiteSpace(item.Url)
+                    || !Uri.TryCreate(item.Url, UriKind.Absolute, out var uri)
+                    || !IsAllowedUri(uri))
+                {
+                    continue;
+                }
+
+                var extension = SubtitleText.NormalizeExtension(item.Ext);
+                if (extension.Length == 0)
+                {
+                    extension = SubtitleText.NormalizeExtension(System.IO.Path.GetExtension(item.Name ?? string.Empty));
+                }
+
+                candidates.Add(new ThunderCandidate(uri, item.Name ?? "未命名字幕", extension));
+            }
+
+            return candidates;
+        }
+        catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+        {
+            throw new ThunderException($"迅雷字幕查询超时（{SearchTimeout.TotalSeconds:F0} 秒）。");
+        }
     }
 
     /// <summary>Downloads a candidate, refusing anything bigger than <see cref="SubtitleText.MaxBytes"/>.</summary>
@@ -156,41 +147,51 @@ public sealed class ThunderClient : IDisposable
             throw new ThunderException($"拒绝下载非迅雷域名：{uri.Host}");
         }
 
-        using var response = await _http
-            .GetAsync(uri, HttpCompletionOption.ResponseHeadersRead, cancellationToken)
-            .ConfigureAwait(false);
+        using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        timeout.CancelAfter(DownloadTimeout);
 
-        if (!response.IsSuccessStatusCode)
+        try
         {
-            throw new ThunderException($"字幕下载失败：HTTP {(int)response.StatusCode}");
-        }
+            using var response = await Http
+                .GetAsync(uri, HttpCompletionOption.ResponseHeadersRead, timeout.Token)
+                .ConfigureAwait(false);
 
-        if (response.Content.Headers.ContentLength is > SubtitleText.MaxBytes)
-        {
-            throw new ThunderException("字幕文件过大，已跳过。");
-        }
-
-        await using var stream = await response.Content.ReadAsStreamAsync(cancellationToken).ConfigureAwait(false);
-        using var buffer = new MemoryStream();
-        var chunk = new byte[81920];
-
-        while (true)
-        {
-            var read = await stream.ReadAsync(chunk, cancellationToken).ConfigureAwait(false);
-            if (read == 0)
+            if (!response.IsSuccessStatusCode)
             {
-                break;
+                throw new ThunderException($"字幕下载失败：HTTP {(int)response.StatusCode}");
             }
 
-            if (buffer.Length + read > SubtitleText.MaxBytes)
+            if (response.Content.Headers.ContentLength is > SubtitleText.MaxBytes)
             {
                 throw new ThunderException("字幕文件过大，已跳过。");
             }
 
-            buffer.Write(chunk, 0, read);
-        }
+            await using var stream = await response.Content.ReadAsStreamAsync(timeout.Token).ConfigureAwait(false);
+            using var buffer = new MemoryStream();
+            var chunk = new byte[81920];
 
-        return buffer.ToArray();
+            while (true)
+            {
+                var read = await stream.ReadAsync(chunk, timeout.Token).ConfigureAwait(false);
+                if (read == 0)
+                {
+                    break;
+                }
+
+                if (buffer.Length + read > SubtitleText.MaxBytes)
+                {
+                    throw new ThunderException("字幕文件过大，已跳过。");
+                }
+
+                buffer.Write(chunk, 0, read);
+            }
+
+            return buffer.ToArray();
+        }
+        catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+        {
+            throw new ThunderException($"字幕下载超时（{DownloadTimeout.TotalSeconds:F0} 秒）。");
+        }
     }
 
     /// <summary>
@@ -216,13 +217,21 @@ public sealed class ThunderClient : IDisposable
             || uri.Host.EndsWith("." + suffix, StringComparison.OrdinalIgnoreCase));
     }
 
-    /// <inheritdoc />
-    public void Dispose()
+    private static HttpClient CreateHttpClient()
     {
-        if (_ownsClient)
+        var client = new HttpClient(new SocketsHttpHandler
         {
-            _http.Dispose();
-        }
+            AllowAutoRedirect = true,
+            AutomaticDecompression = System.Net.DecompressionMethods.All,
+            ConnectTimeout = TimeSpan.FromSeconds(10),
+            MaxConnectionsPerServer = 16
+        })
+        {
+            Timeout = Timeout.InfiniteTimeSpan
+        };
+
+        client.DefaultRequestHeaders.UserAgent.ParseAdd("Jellyfin.Plugin.ThunderSubtitle/1.3.0.0");
+        return client;
     }
 
     private sealed class ThunderResponse
