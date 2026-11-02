@@ -9,9 +9,8 @@ using Xunit;
 namespace Jellyfin.Plugin.ThunderSubtitle.Tests;
 
 /// <summary>
-/// The rule that decides what the model compares, and the plain-text preview the built-in
-/// search dialog shows. Both exist because the ranking cannot tell two files apart that are
-/// the same source re-translated.
+/// The rule that decides what the model compares. It exists because the ranking cannot tell two
+/// files apart that are the same source re-translated.
 /// </summary>
 public class SubtitleShortlistTests
 {
@@ -26,19 +25,6 @@ public class SubtitleShortlistTests
         }
 
         return new SubtitlePick(name, ".srt", builder.ToString(), "utf-8", new Uri("https://subtitle.v.geilijiasu.com/a/b.srt"));
-    }
-
-    private static SubtitlePick Numbered(int cues)
-    {
-        var builder = new StringBuilder();
-        for (var i = 0; i < cues; i++)
-        {
-            builder.Append(i + 1).Append('\n')
-                .Append("00:00:01,000 --> 00:00:02,000\n")
-                .Append("第").Append(i).Append("句台词\n");
-        }
-
-        return new SubtitlePick("numbered", ".srt", builder.ToString(), "utf-8");
     }
 
     [Fact]
@@ -91,42 +77,6 @@ public class SubtitleShortlistTests
     public void EmptyRankingProducesNoShortlist()
     {
         Assert.Empty(SubtitleFinder.SelectShortlist(Array.Empty<SubtitlePick>(), 3));
-    }
-
-    [Fact]
-    public void PreviewSamplesTheMiddleOfTheFileWithoutTimestamps()
-    {
-        var preview = ThunderSubtitleProvider.BuildPreview(Numbered(100), 3);
-
-        var lines = preview.Split('\n');
-        Assert.Equal(3, lines.Length);
-        Assert.Contains("第25句台词", preview);
-        Assert.DoesNotContain("第0句台词", preview);
-        Assert.DoesNotContain("00:00:01", preview);
-    }
-
-    [Fact]
-    public void PreviewCanBeTurnedOff()
-    {
-        Assert.Empty(ThunderSubtitleProvider.BuildPreview(Numbered(50), 0));
-    }
-
-    [Fact]
-    public void PreviewCollapsesMultiLineCues()
-    {
-        const string twoLines = "1\n00:00:01,000 --> 00:00:02,000\n上半句\n下半句\n";
-
-        var preview = ThunderSubtitleProvider.BuildPreview(
-            new SubtitlePick("a.srt", ".srt", twoLines, "utf-8"),
-            4);
-
-        Assert.Equal("· 上半句 下半句", preview);
-    }
-
-    [Fact]
-    public void PreviewIsEmptyForUnreadableText()
-    {
-        Assert.Empty(ThunderSubtitleProvider.BuildPreview(new SubtitlePick("x", ".srt", "不是字幕", "utf-8"), 6));
     }
 
     [Fact]

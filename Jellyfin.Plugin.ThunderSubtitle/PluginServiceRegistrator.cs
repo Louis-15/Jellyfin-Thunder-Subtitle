@@ -2,6 +2,7 @@ using Jellyfin.Plugin.ThunderSubtitle.Core;
 using Jellyfin.Plugin.ThunderSubtitle.Tasks;
 using MediaBrowser.Controller;
 using MediaBrowser.Controller.Plugins;
+using Microsoft.AspNetCore.Hosting;
 using Microsoft.Extensions.DependencyInjection;
 
 namespace Jellyfin.Plugin.ThunderSubtitle;
@@ -23,9 +24,10 @@ public sealed class PluginServiceRegistrator : IPluginServiceRegistrator
         services.AddSingleton<ISubtitleFinder, SubtitleFinder>();
         services.AddSingleton<SubtitleJob>();
 
-        // Preview page: keeps the last searches in memory and writes only when the user picks.
-        services.AddSingleton<PreviewCache>();
-        services.AddSingleton<ISubtitleWriter, SubtitleWriter>();
+        // Preview button in Jellyfin's own subtitle dialog: the text is parked in memory (never
+        // written next to the video) and the script is injected into the web shell at request time.
+        services.AddSingleton<PreviewTextCache>();
+        services.AddSingleton<IStartupFilter, ClientScriptInjectionFilter>();
 
         // Jellyfin picks this up through GetExports<ISubtitleProvider>, which fills the
         // per-item "修改字幕 -> 搜索字幕" dialog.

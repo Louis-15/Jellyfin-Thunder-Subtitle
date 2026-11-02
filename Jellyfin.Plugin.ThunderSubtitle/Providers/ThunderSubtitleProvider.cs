@@ -95,16 +95,17 @@ public sealed class ThunderSubtitleProvider : ISubtitleProvider
             return [Notice(code, outcome)];
         }
 
-        var previewLines = Plugin.Current.PreviewLines;
         return outcome.Ranked
             .Where(pick => pick.Uri is not null)
-            .Select((pick, index) => ToInfo(pick, index + 1, outcome, previewLines, request.MediaPath))
+            .Select((pick, index) => ToInfo(pick, index + 1, outcome, request.MediaPath))
             .ToArray();
     }
 
     /// <inheritdoc />
     public async Task<SubtitleResponse> GetSubtitles(string id, CancellationToken cancellationToken)
     {
+        id = SubtitleId.NormalizeIncoming(id);
+
         if (SubtitleId.IsPlaceholder(id))
         {
             var reason = SubtitleId.DecodePlaceholder(id);
@@ -261,112 +262,10 @@ public sealed class ThunderSubtitleProvider : ISubtitleProvider
         };
     }
 
-    /// <summary>Longest single preview line, so one wall of text cannot dominate the list.</summary>
-    private const int MaxPreviewLineChars = 40;
-
-    /// <summary>Longest preview, in characters, for one candidate.</summary>
-    private const int MaxPreviewChars = 200;
-
-    /// <summary>
-    /// A few lines of dialogue from the middle of the file, shown under each search result so a
-    /// translation can be judged before it is downloaded. Jellyfin renders
-    /// <c>RemoteSubtitleInfo.Comment</c> with <c>white-space: pre-line</c> and escapes everything
-    /// else, so a preview is possible but only as plain text: the built-in dialog offers a plugin
-    /// no other channel.
-    /// </summary>
-    /// <param name="pick">The candidate to preview.</param>
-    /// <param name="lines">How many lines to show; 0 disables the preview.</param>
-    /// <returns>The preview text, empty when disabled or when nothing could be read.</returns>
-    internal static string BuildPreview(SubtitlePick pick, int lines)
-    {
-        if (lines <= 0)
-        {
-            return string.Empty;
-        }
-
-        var take = Math.Clamp(lines, 1, 20);
-        var cues = pick.Cues();
-        if (cues.Count == 0)
-        {
-            return string.Empty;
-        }
-
-        // Sample the middle half: the opening is usually credits and the tail is often sparse,
-        // while the middle is where continuous dialogue exposes a machine translation.
-        var from = cues.Count / 4;
-        var span = Math.Max(1, cues.Count - (from * 2));
-        var builder = new StringBuilder();
-        var chars = 0;
-        var lastIndex = -1;
-
-        for (var i = 0; i < take; i++)
-        {
-            var offset = take == 1 ? span / 2 : (int)Math.Round((double)i * (span - 1) / (take - 1));
-            var index = Math.Min(from + offset, cues.Count - 1);
-            if (index == lastIndex)
-            {
-                // Fewer cues than requested lines: show each line once instead of repeating it.
-                continue;
-            }
-
-            lastIndex = index;
-            var text = CollapseWhitespace(cues[index].Text);
-            if (text.Length == 0)
-            {
-                continue;
-            }
-
-            if (text.Length > MaxPreviewLineChars)
-            {
-                text = text[..MaxPreviewLineChars] + "…";
-            }
-
-            if (chars + text.Length > MaxPreviewChars)
-            {
-                break;
-            }
-
-            builder.Append("· ").Append(text).Append('\n');
-            chars += text.Length;
-        }
-
-        return builder.ToString().TrimEnd('\n');
-    }
-
-    private static string CollapseWhitespace(string? text)
-    {
-        if (string.IsNullOrEmpty(text))
-        {
-            return string.Empty;
-        }
-
-        var builder = new StringBuilder(text.Length);
-        var previousWasSpace = false;
-        foreach (var ch in text)
-        {
-            if (char.IsWhiteSpace(ch))
-            {
-                if (!previousWasSpace)
-                {
-                    builder.Append(' ');
-                    previousWasSpace = true;
-                }
-
-                continue;
-            }
-
-            builder.Append(ch);
-            previousWasSpace = false;
-        }
-
-        return builder.ToString().Trim();
-    }
-
     private static RemoteSubtitleInfo ToInfo(
         SubtitlePick pick,
         int rank,
         FindOutcome outcome,
-        int previewLines,
         string? mediaPath)
     {
         var language = pick.Language == SubtitleLanguage.TraditionalChinese ? "繁体" : "简体";
@@ -381,7 +280,9 @@ public sealed class ThunderSubtitleProvider : ISubtitleProvider
         var verdict = outcome.VerdictOf(pick);
         if (verdict is not null)
         {
-            comment += string.Create(CultureInfo.InvariantCulture, $" · AI {verdict.Score:F0} 分");
+            // On its own line: Jellyfin renders the comment with white-space: pre-line, and mixing
+            // a long reason into the measurements made the row unreadable.
+            comment += "\n" + string.Create(CultureInfo.InvariantCulture, $"AI {verdict.Score:F0} 分");
             if (!string.IsNullOrWhiteSpace(verdict.Reason))
             {
                 comment += $"（{verdict.Reason}）";
@@ -389,12 +290,6 @@ public sealed class ThunderSubtitleProvider : ISubtitleProvider
 
             rating = (float)Math.Round(verdict.Score / 20.0, 2);
             machine = verdict.MachineTranslated;
-        }
-
-        var preview = BuildPreview(pick, previewLines);
-        if (preview.Length > 0)
-        {
-            comment += "\n" + preview;
         }
 
         return new RemoteSubtitleInfo
@@ -422,6 +317,19 @@ public static class SubtitleId
 {
     private const string PlaceholderMarker = "notice|";
 
+    /// <summary>
+    /// Prefix of a real candidate. The client script injected into jellyfin-web uses it to tell
+    /// this plugin's rows apart from other providers', which is how the preview button knows
+    /// where to appear.
+    /// </summary>
+    internal const string CandidateMarker = "ts1-";
+
+    /// <summary>
+    /// Prefix of a notice row. Deliberately different from <see cref="CandidateMarker"/>, so the
+    /// "upstream was empty" entry does not get a preview button.
+    /// </summary>
+    internal const string NoticeMarker = "nt1-";
+
     /// <summary>Builds the id for a candidate.</summary>
     /// <param name="uri">Download URI.</param>
     /// <param name="extension">Content extension, with or without the dot.</param>
@@ -431,7 +339,7 @@ public static class SubtitleId
     public static string Encode(Uri uri, string extension, string name, string? mediaPath)
     {
         var payload = string.Join('|', uri.AbsoluteUri, SubtitleText.NormalizeExtension(extension), name, mediaPath ?? string.Empty);
-        return ToBase64Url(payload);
+        return CandidateMarker + ToBase64Url(payload);
     }
 
     /// <summary>
@@ -440,7 +348,54 @@ public static class SubtitleId
     /// </summary>
     /// <param name="message">The reason to show.</param>
     /// <returns>A URL-safe id that <see cref="TryDecode"/> rejects.</returns>
-    public static string EncodePlaceholder(string message) => ToBase64Url(PlaceholderMarker + message);
+    public static string EncodePlaceholder(string message) => NoticeMarker + ToBase64Url(PlaceholderMarker + message);
+
+    /// <summary>
+    /// Turns an id that came back from the client into one this class understands. Jellyfin
+    /// prefixes every remote subtitle id with the md5 of the provider name and an underscore, so
+    /// the payload is whatever follows the first underscore. Ids from older versions carry no
+    /// marker at all and are returned unchanged.
+    /// </summary>
+    /// <param name="id">The id Jellyfin showed in the dialog.</param>
+    /// <returns>The normalized id, or an empty string.</returns>
+    public static string NormalizeIncoming(string? id)
+    {
+        if (string.IsNullOrWhiteSpace(id))
+        {
+            return string.Empty;
+        }
+
+        var trimmed = id.Trim();
+        if (HasMarker(trimmed))
+        {
+            return trimmed;
+        }
+
+        var separator = trimmed.IndexOf('_', StringComparison.Ordinal);
+        if (separator < 0)
+        {
+            return trimmed;
+        }
+
+        var tail = trimmed[(separator + 1)..];
+        return HasMarker(tail) ? tail : trimmed;
+    }
+
+    /// <summary>Reads the candidate name back out of an id.</summary>
+    /// <param name="id">A candidate id.</param>
+    /// <returns>The candidate name, or <c>字幕</c> when the id cannot be decoded.</returns>
+    public static string DecodeName(string id)
+    {
+        return TryDecode(id, out _, out var name, out _) && !string.IsNullOrWhiteSpace(name)
+            ? name
+            : "字幕";
+    }
+
+    private static bool HasMarker(string id)
+    {
+        return id.StartsWith(CandidateMarker, StringComparison.Ordinal)
+               || id.StartsWith(NoticeMarker, StringComparison.Ordinal);
+    }
 
     /// <summary>Reads the reason out of a notice id.</summary>
     /// <param name="id">The id.</param>
@@ -512,7 +467,8 @@ public static class SubtitleId
             return false;
         }
 
-        var base64 = id.Replace('-', '+').Replace('_', '/');
+        var payload = StripMarker(NormalizeIncoming(id));
+        var base64 = payload.Replace('-', '+').Replace('_', '/');
         base64 = base64.PadRight(base64.Length + ((4 - (base64.Length % 4)) % 4), '=');
 
         try
@@ -524,5 +480,17 @@ public static class SubtitleId
         {
             return false;
         }
+    }
+
+    private static string StripMarker(string id)
+    {
+        if (id.StartsWith(CandidateMarker, StringComparison.Ordinal))
+        {
+            return id[CandidateMarker.Length..];
+        }
+
+        return id.StartsWith(NoticeMarker, StringComparison.Ordinal)
+            ? id[NoticeMarker.Length..]
+            : id;
     }
 }

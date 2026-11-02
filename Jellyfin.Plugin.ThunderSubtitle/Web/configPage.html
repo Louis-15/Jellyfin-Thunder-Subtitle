@@ -67,9 +67,9 @@
                         <code>&lt;片名&gt;.srt</code> 永远不会被覆盖。
                     </p>
                     <p class="fieldDescription">
-                        想先读完整字幕再决定用哪一份？打开
-                        <a href="#" id="OpenPreviewTop">「字幕全文预览」</a>
-                        —— 预览只占用服务器内存，<strong>不会写进影片文件夹</strong>。
+                        在「右键 → 修改字幕 → 搜索字幕」里，每条结果后面会有
+                        <strong>预览</strong>和<strong>下载</strong>两个按钮：预览会把整份字幕读出来看，
+                        只占用服务器内存，<strong>不会写进影片文件夹</strong>。
                     </p>
                 </div>
 
@@ -234,21 +234,18 @@
 
                 <div class="ts-section">
                     <div class="sectionTitleContainer flex align-items-center">
-                        <h3 class="sectionTitle">搜索结果预览</h3>
+                        <h3 class="sectionTitle">预览缓存</h3>
                     </div>
                     <p class="fieldDescription">
-                        在「右键 → 修改字幕 → 搜索字幕」的结果里，把每份字幕中间的一段对白直接显示出来，
-                        <strong>不用下载就能先读一眼</strong>翻译质量。
-                        Jellyfin 的字幕列表只接受纯文本（会自动转义），所以这里只能显示若干行，不能嵌入播放器或链接。
+                        预览过的字幕全文只在服务器内存里留一份，30 分钟没用就过期，最多同时保留 24 份，
+                        重启即清空，<strong>任何时候都不会落盘</strong>。
                     </p>
-
-                    <div class="ts-grid">
-                        <div class="inputContainer">
-                            <label class="inputLabel inputLabelUnfocused" for="PreviewLines">预览行数</label>
-                            <input is="emby-input" id="PreviewLines" type="number" min="0" max="20" step="1" />
-                            <div class="fieldDescription">0 = 关闭预览，建议 4~8 行。</div>
-                        </div>
+                    <div class="ts-actions">
+                        <button is="emby-button" type="button" id="ClearPreviewCache" class="raised">
+                            <span>清空预览缓存</span>
+                        </button>
                     </div>
+                    <div id="PreviewCacheStatus" class="fieldDescription"></div>
                 </div>
 
                 <div>
@@ -272,13 +269,6 @@
                     <button is="emby-button" type="button" id="OpenTasks" class="raised">
                         <span>打开计划任务</span>
                     </button>
-                    <button is="emby-button" type="button" id="OpenPreview" class="raised">
-                        <span>字幕全文预览</span>
-                    </button>
-                </div>
-                <div class="fieldDescription">
-                    「字幕全文预览」可以按番号搜索候选，把每一份字幕<strong>完整读一遍</strong>后再决定写入哪一份，
-                    预览期间不会有任何文件落进影片文件夹。
                 </div>
                 <div id="RunStatus" class="ts-status" style="display: none;"></div>
             </div>
@@ -386,7 +376,6 @@
                     byId('AiApiKey').value = cfg.AiApiKey || '';
                     byId('AiTopCandidates').value = cfg.AiTopCandidates || 3;
                     byId('AiTimeoutSeconds').value = cfg.AiTimeoutSeconds || 60;
-                    byId('PreviewLines').value = cfg.PreviewLines != null ? cfg.PreviewLines : 6;
                     syncProviderRows();
 
                     return ApiClient.getJSON(ApiClient.getUrl('Library/VirtualFolders')).then(function (libraries) {
@@ -469,9 +458,6 @@
                     var timeout = parseInt(byId('AiTimeoutSeconds').value, 10);
                     cfg.AiTimeoutSeconds = isNaN(timeout) ? 60 : Math.min(300, Math.max(10, timeout));
 
-                    var previewLines = parseInt(byId('PreviewLines').value, 10);
-                    cfg.PreviewLines = isNaN(previewLines) ? 6 : Math.min(20, Math.max(0, previewLines));
-
                     return ApiClient.updatePluginConfiguration(PluginId, cfg).then(function (result) {
                         Dashboard.processPluginConfigurationUpdateResult(result);
                     });
@@ -480,8 +466,18 @@
                 });
             }
 
-            function openPreview() {
-                Dashboard.navigate('configurationpage?name=thundersubtitlepreview');
+            function clearPreviewCache() {
+                Dashboard.showLoadingMsg();
+                ApiClient.ajax({
+                    type: 'POST',
+                    url: ApiClient.getUrl('ThunderSubtitle/Cache/Clear')
+                }).then(function () {
+                    byId('PreviewCacheStatus').textContent = '预览缓存已清空。';
+                }, function () {
+                    byId('PreviewCacheStatus').textContent = '清空失败，请确认当前账号有管理员权限。';
+                }).finally(function () {
+                    Dashboard.hideLoadingMsg();
+                });
             }
 
             document.querySelector('#ThunderSubtitleConfigPage').addEventListener('pageshow', function () {
@@ -508,11 +504,7 @@
             document.querySelector('#OpenTasks').addEventListener('click', function () {
                 Dashboard.navigate('scheduledtasks');
             });
-            document.querySelector('#OpenPreview').addEventListener('click', openPreview);
-            document.querySelector('#OpenPreviewTop').addEventListener('click', function (event) {
-                event.preventDefault();
-                openPreview();
-            });
+            document.querySelector('#ClearPreviewCache').addEventListener('click', clearPreviewCache);
         })();
     </script>
 </div>

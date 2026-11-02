@@ -171,6 +171,12 @@ public class ThunderSubtitleProviderTests
         Assert.True(results[1].MachineTranslated);
         Assert.Contains("AI 90 分", results[0].Comment);
         Assert.Contains("直译", results[1].Comment);
+
+        // The score and its reason get their own line: Jellyfin renders the comment with
+        // white-space: pre-line, and mixing them into the measurements made the row unreadable.
+        Assert.Contains("\nAI 90 分", results[0].Comment);
+        Assert.Contains("\nAI 30 分", results[1].Comment);
+        Assert.DoesNotContain("· AI", results[0].Comment);
     }
 
     [Fact]

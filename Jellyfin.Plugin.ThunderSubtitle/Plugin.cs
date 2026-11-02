@@ -53,14 +53,6 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
             {
                 Name = "thundersubtitle",
                 EmbeddedResourcePath = GetType().Namespace + ".Web.configPage.html"
-            },
-            new PluginPageInfo
-            {
-                // Deliberately without EnableInMainMenu: Jellyfin treats that flag as "this is
-                // the plugin's settings page", so flagging the second page made the plugin's
-                // Settings button open the preview instead of the configuration.
-                Name = "thundersubtitlepreview",
-                EmbeddedResourcePath = GetType().Namespace + ".Web.previewPage.html"
             }
         ];
     }
