@@ -1,7 +1,7 @@
 # Thunder Subtitle · 项目交接文档
 
 > 这份文档写给**接手继续开发的人或 AI**。读完这一篇就能直接改代码，不需要翻聊天记录。
-> 最后更新：2026-11-03，当前版本 **1.8.3.1**。
+> 最后更新：2026-11-03，当前版本 **1.8.3.2**。
 
 ---
 
@@ -29,7 +29,7 @@ dotnet build .\Jellyfin.Plugin.ThunderSubtitle\Jellyfin.Plugin.ThunderSubtitle.c
 dotnet test .\tests\Jellyfin.Plugin.ThunderSubtitle.Tests\Jellyfin.Plugin.ThunderSubtitle.Tests.csproj -c Release
 
 # 发版（自动改版本号 + commit + 打 tag + push，CI 会编译/打包/写 manifest/发 Release）
-.\release.ps1 -Version 1.8.3.1 -Changelog "改了什么"
+.\release.ps1 -Version 1.8.3.2 -Changelog "改了什么"
 ```
 
 > 本机 SDK 装在 `C:\Users\aaa\dotnet-sdk`（10.0.403），**不在 PATH 里**。如果 `dotnet` 报 “兼容的 .NET SDK 未找到”，
@@ -178,6 +178,10 @@ Jellyfin 会把它当成"插件设置页"，导致插件「设置」按钮跳到
 `.emby-checkbox-label` 结构，**不要给 label 加内联 padding**：会覆盖官方自带的
 `padding-left: 2.4em`，让绝对定位的方框压住库名。
 
+**`<style>` 必须写在 `<body>` 里（1.8.3.2 的教训）**：Jellyfin 前端加载插件页时只把 `<body>`
+的子节点搬进 SPA 容器，`<head>` 里的 `<style>` 会被整块丢弃——现象就是"页面结构对、但所有自定义
+样式都不生效"（分组没边框、内容没缩进、legend 不变粗）。把 `<style>` 挪回 `<head>` 会立刻复现。
+
 ### 6.4 预览按钮（本轮新增，最容易踩坑）
 
 Jellyfin 的「修改字幕 → 搜索字幕」弹窗编译在 jellyfin-web 里，插件无法从服务端给它加按钮。
@@ -255,7 +259,7 @@ ClientScriptInjectionFilter : IStartupFilter        ← 在 DI 里 AddSingleton<
 
 ```powershell
 curl.exe -sk -X POST -H "Authorization: MediaBrowser Token=`"{KEY}`"" `
-  "https://931002.xyz:8443/Packages/Installed/Thunder%20Subtitle?version=1.8.3.1&repositoryUrl=https%3A%2F%2Fraw.githubusercontent.com%2FLouis-15%2FJellyfin-Thunder-Subtitle%2Fmain%2Fmanifest.json"
+  "https://931002.xyz:8443/Packages/Installed/Thunder%20Subtitle?version=1.8.3.2&repositoryUrl=https%3A%2F%2Fraw.githubusercontent.com%2FLouis-15%2FJellyfin-Thunder-Subtitle%2Fmain%2Fmanifest.json"
 ssh -p 2222 root@931002.xyz 'docker restart jellyfin'
 ```
 
@@ -319,6 +323,8 @@ AI prompt 与 JSON 解析（含错误回复）、搜索结果 id 编解码、预
 9. **`.strm` 条目查不到**：`TopParentIds` 对 `.strm` 无效，要用 `ParentId + Recursive`，且
    `CollapseBoxSetItems = false`，否则已进合集的影片会"消失"。
 10. **绝对不要动 115 同步的字幕**：`<片名>.srt` / `<片名>.zh.srt` 不属于本插件，任何情况下不覆盖不删除。
+11. **插件页的 `<style>` 放在 `<head>` 等于没写**：Jellyfin 只搬 `<body>` 子节点进 SPA，
+    自定义样式会全部丢失。判断方法：看 `legend`/标题有没有变粗——没变粗就是 CSS 没加载。
 
 ---
 
@@ -338,6 +344,7 @@ AI prompt 与 JSON 解析（含错误回复）、搜索结果 id 编解码、预
 | 1.8.2.0 | 修弹窗顶部 `undefined`（字段名对齐 `cueCount`/`contentChars`/`encodingName`） |
 | 1.8.3.0 | 文档与文案去掉敏感用词（统一"按番号命名的影片"）；内部类 `JavCode` 更名 `ReleaseCode` |
 | **1.8.3.1** | 配置页改为**分组卡片布局**：`fieldset` + `legend` 划出 基本设置 / 目标影视库 / 下载与筛选 / AI 评审 / 预览缓存 / 手动运行 / 关于；修影视库勾选框被方框压住的问题 |
+| **1.8.3.2** | 修 1.8.3.1 的样式全部失效：`<style>` 从 `<head>` 移进 `<body>`（Jellyfin 只搬 body 子节点，head 里的 style 会被丢掉），缩进/边框/字重恢复生效 |
 
 ---
 

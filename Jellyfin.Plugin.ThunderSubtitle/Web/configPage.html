@@ -2,6 +2,13 @@
 <html>
 <head>
     <title>Thunder Subtitle</title>
+</head>
+<body>
+<div id="ThunderSubtitleConfigPage" data-role="page" class="page type-interior pluginConfigurationPage"
+     data-require="emby-input,emby-button,emby-select,emby-checkbox">
+    <!-- 样式必须写在 <body> 里：Jellyfin 前端加载插件页时只把 <body> 的子节点搬进 SPA 容器，
+         <head> 里的 <style> 会被整块丢弃（1.8.3.1 缩进不生效就是这个原因）。
+         同时这个 <style> 不能挪回 <head>，否则页面会退回成没有分组样式的裸排版。 -->
     <style>
         /* 每个大类用 fieldset + legend 画出独立外框，legend 压在边框线上，
            与 Jellyfin 常见插件设置页的分组观感保持一致。 */
@@ -89,10 +96,6 @@
             border-left-color: #cc3b3b;
         }
     </style>
-</head>
-<body>
-<div id="ThunderSubtitleConfigPage" data-role="page" class="page type-interior pluginConfigurationPage"
-     data-require="emby-input,emby-button,emby-select,emby-checkbox">
     <div data-role="content">
         <div class="content-primary">
             <form id="ThunderSubtitleForm">
