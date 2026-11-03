@@ -258,11 +258,12 @@
                                 <div class="fieldDescription">保存在服务器插件配置里，不会写进日志。</div>
                             </div>
                             <div class="inputContainer">
-                                <label class="inputLabel inputLabelUnfocused" for="AiTopCandidates">评审前 N 名</label>
-                                <input is="emby-input" id="AiTopCandidates" type="number" min="2" max="5" step="1" />
+                                <label class="inputLabel inputLabelUnfocused" for="AiPerTier">每档评审份数</label>
+                                <input is="emby-input" id="AiPerTier" type="number" min="1" max="3" step="1" />
                                 <div class="fieldDescription">
-                                    每次都送进同一个请求，2~5 比较合适。如果前几名的<strong>条数并列</strong>
-                                    （同一份字幕的不同翻译），并列的那些会一起送进去比较。
+                                    候选先按<strong>条数</strong>分档（相差 2% 以内算同一档，例如 500 条和 504 条），
+                                    取条数最多的前 3 档，每档再挑几份送进同一个请求。默认 2，即最多 6 份。
+                                    条数最多的那批常常是同一份机翻的不同转码，只取前 N 名会把人翻挤掉。
                                 </div>
                             </div>
                             <div class="inputContainer">
@@ -425,7 +426,7 @@
                     byId('AiBaseUrl').value = cfg.AiBaseUrl || '';
                     byId('AiModel').value = cfg.AiModel || 'deepseek-v4.1-flash';
                     byId('AiApiKey').value = cfg.AiApiKey || '';
-                    byId('AiTopCandidates').value = cfg.AiTopCandidates || 3;
+                    byId('AiPerTier').value = cfg.AiPerTier || 2;
                     byId('AiTimeoutSeconds').value = cfg.AiTimeoutSeconds || 60;
                     syncProviderRows();
 
@@ -503,8 +504,8 @@
                     cfg.AiApiKey = byId('AiApiKey').value.trim();
                     cfg.AiModel = byId('AiModel').value.trim() || 'deepseek-v4.1-flash';
 
-                    var topN = parseInt(byId('AiTopCandidates').value, 10);
-                    cfg.AiTopCandidates = isNaN(topN) ? 3 : Math.min(5, Math.max(2, topN));
+                    var perTier = parseInt(byId('AiPerTier').value, 10);
+                    cfg.AiPerTier = isNaN(perTier) ? 2 : Math.min(3, Math.max(1, perTier));
 
                     var timeout = parseInt(byId('AiTimeoutSeconds').value, 10);
                     cfg.AiTimeoutSeconds = isNaN(timeout) ? 60 : Math.min(300, Math.max(10, timeout));

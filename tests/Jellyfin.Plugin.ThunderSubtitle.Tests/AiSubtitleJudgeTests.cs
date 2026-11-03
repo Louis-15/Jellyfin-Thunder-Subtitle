@@ -217,6 +217,7 @@ public class AiSubtitleJudgeTests
         var configuration = new PluginConfiguration
         {
             AiTopCandidates = 99,
+            AiPerTier = 99,
             AiSampleCues = 1,
             AiMaxCharsPerCandidate = 1,
             AiTimeoutSeconds = 1

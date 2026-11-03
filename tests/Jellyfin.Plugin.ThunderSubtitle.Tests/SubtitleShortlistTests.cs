@@ -28,30 +28,57 @@ public class SubtitleShortlistTests
     }
 
     [Fact]
-    public void ShortlistIsTheTopNWhenCueCountsDiffer()
+    public void PicksTwoFromEachOfTheTopThreeVolumeTiers()
     {
-        var ranked = new[] { Pick("a", 900, 20), Pick("b", 800, 20), Pick("c", 700, 20), Pick("d", 600, 20) };
+        // 用户的实际场景：条数前三档分别是 500 / 480 / 420，每档 3 份。
+        // 期望每档出 2 份、共 6 份 —— 而不是只看条数最多的那两三份。
+        var ranked = new[]
+        {
+            Pick("a1", 500, 20), Pick("a2", 500, 18), Pick("a3", 500, 10),
+            Pick("b1", 480, 20), Pick("b2", 480, 18), Pick("b3", 480, 10),
+            Pick("c1", 420, 20), Pick("c2", 420, 18), Pick("c3", 420, 10)
+        };
 
         var shortlist = SubtitleFinder.SelectShortlist(ranked, 2);
 
-        Assert.Equal(new[] { "a", "b" }, shortlist.Select(pick => pick.CandidateName));
+        Assert.Equal(
+            new[] { "a1", "a2", "b1", "b2", "c1", "c2" },
+            shortlist.Select(pick => pick.CandidateName));
     }
 
     [Fact]
-    public void ShortlistExpandsToEveryCandidateTiedOnCueCount()
+    public void CueCountsWithinTwoPercentShareOneTier()
     {
-        var ranked = new[] { Pick("a", 900, 20), Pick("b", 900, 14), Pick("c", 900, 10), Pick("d", 500, 40) };
+        // 504 与 500 差 0.8%，算同一档；480 差 4.8%，自己成一档。
+        var ranked = new[] { Pick("x", 504, 20), Pick("y", 500, 18), Pick("z", 480, 20) };
 
         var shortlist = SubtitleFinder.SelectShortlist(ranked, 2);
 
-        Assert.Equal(3, shortlist.Count);
+        Assert.Equal(new[] { "x", "y", "z" }, shortlist.Select(pick => pick.CandidateName));
+    }
+
+    [Fact]
+    public void CandidatesBeyondTheThirdTierAreDropped()
+    {
+        var ranked = new[]
+        {
+            Pick("a", 900, 20), Pick("b", 800, 20),
+            Pick("c", 700, 20), Pick("d", 600, 20),
+            Pick("e", 500, 20)
+        };
+
+        var shortlist = SubtitleFinder.SelectShortlist(ranked, 2);
+
         Assert.Equal(new[] { "a", "b", "c" }, shortlist.Select(pick => pick.CandidateName));
     }
 
     [Fact]
-    public void TieExpansionIsCapped()
+    public void ShortlistNeverExceedsTheJudgedCap()
     {
-        var ranked = Enumerable.Range(0, 12).Select(i => Pick("p" + i, 900, 20 - i)).ToArray();
+        // 4 档 × 3 份、每档要 3 份 —— 必须被 MaxJudgedCandidates 截住。
+        var ranked = Enumerable.Range(0, 12)
+            .Select(i => Pick("p" + i, 900 - ((i / 3) * 100), 20))
+            .ToArray();
 
         var shortlist = SubtitleFinder.SelectShortlist(ranked, 3);
 
@@ -59,24 +86,24 @@ public class SubtitleShortlistTests
     }
 
     [Fact]
-    public void ZeroCueCountsDoNotExpandTheShortlist()
+    public void ZeroCueCountsNeverJoinARealTier()
     {
+        // 条数为 0（内容根本不是字幕）不参与模糊匹配，自己单独一档。
         var ranked = new[]
         {
-            new SubtitlePick("junk1", ".srt", "不是字幕", "utf-8"),
-            new SubtitlePick("junk2", ".srt", "也不是字幕", "utf-8"),
-            new SubtitlePick("junk3", ".srt", "还不是字幕", "utf-8")
+            Pick("good", 500, 20),
+            new SubtitlePick("junk", ".srt", "不是字幕", "utf-8")
         };
 
         var shortlist = SubtitleFinder.SelectShortlist(ranked, 2);
 
-        Assert.Equal(2, shortlist.Count);
+        Assert.Equal(new[] { "good", "junk" }, shortlist.Select(pick => pick.CandidateName));
     }
 
     [Fact]
     public void EmptyRankingProducesNoShortlist()
     {
-        Assert.Empty(SubtitleFinder.SelectShortlist(Array.Empty<SubtitlePick>(), 3));
+        Assert.Empty(SubtitleFinder.SelectShortlist(Array.Empty<SubtitlePick>(), 2));
     }
 
     [Fact]

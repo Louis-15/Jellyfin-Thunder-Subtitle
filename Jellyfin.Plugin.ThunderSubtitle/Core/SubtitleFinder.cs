@@ -180,10 +180,10 @@ public sealed class SubtitleFinder : ISubtitleFinder
             return outcome with { Shortlist = ranked.Take(1).ToArray() };
         }
 
-        var shortlist = SelectShortlist(ranked, config.AiTopCandidates);
-        if (shortlist.Count > config.AiTopCandidates)
+        var shortlist = SelectShortlist(ranked, config.AiPerTier);
+        if (shortlist.Count > 1)
         {
-            _log.Info($"[{code}] 前几名的条数并列，AI 评审范围从 {config.AiTopCandidates} 份扩大到 {shortlist.Count} 份。");
+            _log.Info($"[{code}] AI 评审：候选 {ranked.Count} 份按条数分档，取前 {ShortlistTiers} 档共 {shortlist.Count} 份。");
         }
 
         var verdicts = await _ai
@@ -210,28 +210,92 @@ public sealed class SubtitleFinder : ISubtitleFinder
     internal const int MaxJudgedCandidates = 8;
 
     /// <summary>
-    /// Picks what the model compares: the top <paramref name="topCandidates"/> by dialogue
-    /// volume, plus every candidate that has as many cues as the leader. Equal cue counts mean
-    /// the volume metric has nothing left to separate them — they are the same source run
-    /// through different translators — and a human translation sitting behind three identical
-    /// machine dumps would otherwise never reach the model.
+    /// 送 AI 评审时覆盖几个「条数档位」。
+    /// 3 档是用户定的：太少容易全落在同一份机翻的副本里，太多则 prompt 变长、费用变高。
+    /// </summary>
+    internal const int ShortlistTiers = 3;
+
+    /// <summary>
+    /// 条数相差不超过「较高者」的这个百分比，就算同一个档位。
+    /// 用户举的例子：500 条和 504 条应当是同一档（差 0.8%），
+    /// 而 500 / 480（差 4%）应当分成两档。
+    /// </summary>
+    internal const double TierTolerancePercent = 2.0;
+
+    /// <summary>
+    /// Picks what the model compares.
+    ///
+    /// 规则：
+    /// 1. 按「条数」把候选分档，相邻差 ≤ <see cref="TierTolerancePercent"/> 算同一档；
+    /// 2. 取条数最多的前 <see cref="ShortlistTiers"/> 档；
+    /// 3. 每档再挑 <paramref name="perTier"/> 份（档内按质量排序取前面的）。
+    ///
+    /// 为什么不再只取「前 N 名」：条数最多的那一批往往是同一份机翻的不同转码，
+    /// 而 AI 翻译的条目通常还更多。只按条数取前 N，会把排在后面的人翻彻底挤出评审，
+    /// 于是模型只能在几份机翻里挑一份"最不烂的"。
     /// </summary>
     /// <param name="ranked">Chinese candidates, best first.</param>
-    /// <param name="topCandidates">The configured "judge the top N" value.</param>
-    /// <returns>The shortlist in ranking order, capped at <see cref="MaxJudgedCandidates"/>.</returns>
-    internal static List<SubtitlePick> SelectShortlist(IReadOnlyList<SubtitlePick> ranked, int topCandidates)
+    /// <param name="perTier">每档取几份。</param>
+    /// <returns>按档位从高到低排好的候选，最多 <see cref="MaxJudgedCandidates"/> 份。</returns>
+    internal static List<SubtitlePick> SelectShortlist(IReadOnlyList<SubtitlePick> ranked, int perTier)
     {
         if (ranked.Count == 0)
         {
             return [];
         }
 
-        var top = Math.Clamp(topCandidates, 1, MaxJudgedCandidates);
-        var maxCues = ranked.Max(pick => pick.CueCount);
-        return ranked
-            .Where((pick, index) => index < top || (maxCues > 0 && pick.CueCount == maxCues))
-            .Take(MaxJudgedCandidates)
-            .ToList();
+        var take = Math.Clamp(perTier, 1, MaxJudgedCandidates);
+
+        // 质量顺序：Rank 已经把「名字带番号 / 机翻标记 / 语言 / 字数 / 条数」都算进去了，
+        // 档内挑代表时优先取它排在前面的那几个。
+        var qualityIndex = new Dictionary<SubtitlePick, int>(ReferenceEqualityComparer.Instance);
+        for (var i = 0; i < ranked.Count; i++)
+        {
+            qualityIndex[ranked[i]] = i;
+        }
+
+        // 分档只看条数 —— 这是「一份字幕完整不完整」最直观、也最不容易被文件名骗到的指标。
+        var tiers = new List<List<SubtitlePick>>();
+        var baseline = 0;
+
+        foreach (var pick in ranked.OrderByDescending(pick => pick.CueCount))
+        {
+            if (tiers.Count == 0 || !IsSameTier(baseline, pick.CueCount))
+            {
+                tiers.Add([]);
+                baseline = pick.CueCount;
+            }
+
+            tiers[^1].Add(pick);
+        }
+
+        var shortlist = new List<SubtitlePick>();
+
+        foreach (var tier in tiers.Take(ShortlistTiers))
+        {
+            shortlist.AddRange(tier
+                .OrderBy(pick => qualityIndex.TryGetValue(pick, out var index) ? index : int.MaxValue)
+                .Take(take));
+        }
+
+        return shortlist.Take(MaxJudgedCandidates).ToList();
+    }
+
+    /// <summary>
+    /// 判断某个条数是否还算在 <paramref name="baseline"/> 开启的那一档里。
+    /// 条数为 0 的（解析失败的空壳）不参与模糊匹配，各自单独成档。
+    /// </summary>
+    /// <param name="baseline">该档的基准条数（档内最大值）。</param>
+    /// <param name="cues">待判断的条数。</param>
+    /// <returns>同一档返回 true。</returns>
+    private static bool IsSameTier(int baseline, int cues)
+    {
+        if (baseline <= 0)
+        {
+            return cues == baseline;
+        }
+
+        return Math.Abs(baseline - cues) <= baseline * TierTolerancePercent / 100.0;
     }
 
     /// <summary>

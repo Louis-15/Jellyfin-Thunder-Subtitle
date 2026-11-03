@@ -95,7 +95,20 @@ public class PluginConfiguration : BasePluginConfiguration
     /// <summary>Gets or sets the model name.</summary>
     public string AiModel { get; set; } = OpenCodeDefaultModel;
 
-    /// <summary>Gets or sets how many of the largest candidates are compared by the model.</summary>
+    /// <summary>
+    /// 每个「条数档位」挑几份送 AI 评审。
+    ///
+    /// 条数最多的那一批常常是同一份机翻的不同转码（AI 翻译的条目往往还更多），
+    /// 只按条数取前 N 名会把真正的人翻挤出评审范围。所以改成：
+    /// 按条数分档（相邻差 ≤ 2% 算同一档）→ 取条数最多的前 3 档 → 每档挑这个数量。
+    /// 默认 2，即 3 档 × 2 份 = 6 份。
+    /// </summary>
+    public int AiPerTier { get; set; } = 2;
+
+    /// <summary>
+    /// 旧版的「评审前 N 名」。1.9.1.0 起不再参与筛选，保留字段只为兼容已存在的 XML 配置
+    /// （删掉字段会让旧配置里的同名节点变成"未知元素"，虽然不影响解析，但没必要制造噪音）。
+    /// </summary>
     public int AiTopCandidates { get; set; } = 3;
 
     /// <summary>Gets or sets how many cue lines are sampled from each candidate.</summary>
@@ -188,6 +201,7 @@ public class PluginConfiguration : BasePluginConfiguration
             AiModel = OpenCodeDefaultModel;
         }
         AiTopCandidates = Math.Clamp(AiTopCandidates, 2, 5);
+        AiPerTier = Math.Clamp(AiPerTier, 1, 3);
         AiSampleCues = Math.Clamp(AiSampleCues, 4, 80);
         AiMaxCharsPerCandidate = Math.Clamp(AiMaxCharsPerCandidate, 500, 20_000);
         AiTimeoutSeconds = Math.Clamp(AiTimeoutSeconds, 10, 300);
