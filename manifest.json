@@ -9,12 +9,12 @@
     "imageUrl": "https://raw.githubusercontent.com/Louis-15/Jellyfin-Thunder-Subtitle/main/logo.png",
     "versions": [
       {
-        "version": "1.8.3.3",
-        "changelog": "Release 1.8.3.3\n\n配置页取消组内左缩进：设置项与说明文字全部贴齐分组边框，层级靠外框与 legend 加粗表达",
+        "version": "1.9.0.0",
+        "changelog": "Release 1.9.0.0\n\n新增实时入库补字幕：新片刮削完成后立刻补一次字幕，不扫全库；顺带修复 CI 回写 manifest 时的 rebase 冲突",
         "targetAbi": "12.2.0.0",
-        "sourceUrl": "https://github.com/Louis-15/Jellyfin-Thunder-Subtitle/releases/download/v1.8.3.3/thunder-subtitle_1.8.3.3.zip",
-        "checksum": "0bbe46d583d2111a540a7a8f19316afb",
-        "timestamp": "2026-11-03T13:29:45Z"
+        "sourceUrl": "https://github.com/Louis-15/Jellyfin-Thunder-Subtitle/releases/download/v1.9.0.0/thunder-subtitle_1.9.0.0.zip",
+        "checksum": "00623d3e9a53de22ca90621baa4a9f4d",
+        "timestamp": "2026-11-03T18:40:32Z"
       }
     ]
   }
