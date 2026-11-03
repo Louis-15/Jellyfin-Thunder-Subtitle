@@ -41,6 +41,15 @@ public class PluginConfiguration : BasePluginConfiguration
     /// </summary>
     public bool AllowOverwritePluginSubtitle { get; set; }
 
+    /// <summary>
+    /// 新片入库时立即补字幕（默认开启）。
+    ///
+    /// 开启后插件每 30 秒检查一次「最近 6 小时入库、已刮削完成」的影片，
+    /// 只对这些片子跑一次字幕搜索，不扫全库。
+    /// 原来的定时任务仍然保留，作为漏网条目的兜底。
+    /// </summary>
+    public bool RealtimeFill { get; set; } = true;
+
     /// <summary>Gets or sets the log level written to the Jellyfin log.</summary>
     public string LogLevel { get; set; } = "Information";
 

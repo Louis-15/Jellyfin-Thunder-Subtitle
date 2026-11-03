@@ -179,6 +179,114 @@ public sealed class SubtitleJob
         }
     }
 
+    /// <summary>
+    /// 只处理指定的条目（实时入库用）。
+    ///
+    /// 与 <see cref="RunAsync"/> 的差别：不枚举影视库，只按 Id 取条目，
+    /// 因此耗时只跟新片数量有关，与库大小无关。
+    /// </summary>
+    /// <param name="itemIds">条目 Id（Jellyfin 的影片 Guid）。</param>
+    /// <param name="cancellationToken">取消令牌。</param>
+    /// <returns><c>true</c> 表示这批条目已处理完（或被判定为无需处理）；<c>false</c> 表示本次没跑（锁被占 / 开关关闭），调用方应稍后重试。</returns>
+    public async Task<bool> ProcessItemsAsync(IReadOnlyCollection<Guid> itemIds, CancellationToken cancellationToken)
+    {
+        if (itemIds is null || itemIds.Count == 0)
+        {
+            return true;
+        }
+
+        // 与全量任务共用同一把锁，但**不等待**：全量任务正在跑时，
+        // 让实时这批直接跳过，调用方下一轮再试。
+        if (!await Gate.WaitAsync(0, cancellationToken).ConfigureAwait(false))
+        {
+            return false;
+        }
+
+        var stopwatch = Stopwatch.StartNew();
+
+        try
+        {
+            var config = Plugin.Current;
+            config.Normalize();
+
+            if (!config.Enabled || !config.RealtimeFill)
+            {
+                return false;
+            }
+
+            var queue = new List<BaseItem>();
+            foreach (var id in itemIds)
+            {
+                var item = _libraryManager.GetItemById(id);
+                if (item is null)
+                {
+                    continue;
+                }
+
+                // 已经有好字幕、或者根本读不到文件，直接跳过。
+                if (!ShouldProcess(item, config, repick: false))
+                {
+                    continue;
+                }
+
+                queue.Add(item);
+            }
+
+            if (queue.Count == 0)
+            {
+                return true;
+            }
+
+            _log.Info($"实时入库：{queue.Count} 部新片，开始补字幕。");
+
+            int written = 0, kept = 0, empty = 0, failed = 0;
+
+            foreach (var item in queue)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+
+                try
+                {
+                    var result = await ProcessAsync(item, config, repick: false, cancellationToken).ConfigureAwait(false);
+                    switch (result)
+                    {
+                        case ProcessResult.Written:
+                            written++;
+                            break;
+                        case ProcessResult.KeptExisting:
+                            kept++;
+                            break;
+                        case ProcessResult.NoCandidates:
+                            empty++;
+                            break;
+                        case ProcessResult.Skipped:
+                            break;
+                        default:
+                            failed++;
+                            break;
+                    }
+                }
+                catch (OperationCanceledException)
+                {
+                    throw;
+                }
+                catch (Exception ex)
+                {
+                    failed++;
+                    _log.Error($"{Display(item)}：实时补字幕失败 - {ex.GetType().Name}: {ex.Message}");
+                }
+            }
+
+            stopwatch.Stop();
+            _log.Info($"实时补字幕结束：写入 {written}，保留 {kept}，无可用字幕 {empty}，失败 {failed}，耗时 {stopwatch.Elapsed.TotalSeconds:F1} 秒。");
+            return true;
+        }
+        finally
+        {
+            Gate.Release();
+        }
+    }
+
     private IReadOnlyList<BaseItem> EnumerateItems(IReadOnlyList<Guid> libraries)
     {
         // One query per library: ParentId + Recursive is the only filter that reliably

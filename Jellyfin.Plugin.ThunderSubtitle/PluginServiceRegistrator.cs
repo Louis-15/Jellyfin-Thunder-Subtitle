@@ -37,5 +37,8 @@ public sealed class PluginServiceRegistrator : IPluginServiceRegistrator
         // so registering the concrete types is enough for the tasks to show up.
         services.AddSingleton<ThunderFillTask>();
         services.AddSingleton<ThunderRepickTask>();
+
+        // 实时入库监听：新片刮削完成后立刻补一次字幕，不扫全库。
+        services.AddHostedService<ItemWatchService>();
     }
 }
