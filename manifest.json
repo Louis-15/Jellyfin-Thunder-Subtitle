@@ -9,12 +9,12 @@
     "imageUrl": "https://raw.githubusercontent.com/Louis-15/Jellyfin-Thunder-Subtitle/main/logo.png",
     "versions": [
       {
-        "version": "1.8.3.1",
-        "changelog": "Release 1.8.3.1\n\n配置页改为分组卡片布局：基本设置 / 目标影视库 / 下载与筛选 / AI 评审 / 预览缓存 / 手动运行 / 关于；修复影视库勾选框被方框压住的问题",
+        "version": "1.8.3.2",
+        "changelog": "Release 1.8.3.2\n\n修 1.8.3.1 样式全部失效：Jellyfin 只搬 body 子节点，把 <style> 从 head 移进 body，分组边框/缩进/字重恢复生效",
         "targetAbi": "12.2.0.0",
-        "sourceUrl": "https://github.com/Louis-15/Jellyfin-Thunder-Subtitle/releases/download/v1.8.3.1/thunder-subtitle_1.8.3.1.zip",
-        "checksum": "17235d34212c7f2d7c418ee7c7a766fa",
-        "timestamp": "2026-11-03T12:50:33Z"
+        "sourceUrl": "https://github.com/Louis-15/Jellyfin-Thunder-Subtitle/releases/download/v1.8.3.2/thunder-subtitle_1.8.3.2.zip",
+        "checksum": "c9e8577a60208358aa293821776bb582",
+        "timestamp": "2026-11-03T13:03:38Z"
       }
     ]
   }
