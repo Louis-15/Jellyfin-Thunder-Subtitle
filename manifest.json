@@ -9,12 +9,12 @@
     "imageUrl": "https://raw.githubusercontent.com/Louis-15/Jellyfin-Thunder-Subtitle/main/logo.png",
     "versions": [
       {
-        "version": "1.9.0.0",
-        "changelog": "Release 1.9.0.0\n\n新增实时入库补字幕：新片刮削完成后立刻补一次字幕，不扫全库；顺带修复 CI 回写 manifest 时的 rebase 冲突",
+        "version": "1.9.1.0",
+        "changelog": "Release 1.9.1.0\n\nAI 评审候选改为按条数分档：相差 2% 算同一档，取前 3 档、每档 2 份（最多 6 份），避免条数最多的机翻把真正的人翻挤出评审",
         "targetAbi": "12.2.0.0",
-        "sourceUrl": "https://github.com/Louis-15/Jellyfin-Thunder-Subtitle/releases/download/v1.9.0.0/thunder-subtitle_1.9.0.0.zip",
-        "checksum": "00623d3e9a53de22ca90621baa4a9f4d",
-        "timestamp": "2026-11-03T18:40:32Z"
+        "sourceUrl": "https://github.com/Louis-15/Jellyfin-Thunder-Subtitle/releases/download/v1.9.1.0/thunder-subtitle_1.9.1.0.zip",
+        "checksum": "4e1fba9cc99145d1e4d5b6abaa81f66c",
+        "timestamp": "2026-11-03T18:58:48Z"
       }
     ]
   }
