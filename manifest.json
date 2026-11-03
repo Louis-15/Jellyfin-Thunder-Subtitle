@@ -9,12 +9,12 @@
     "imageUrl": "https://raw.githubusercontent.com/Louis-15/Jellyfin-Thunder-Subtitle/main/logo.png",
     "versions": [
       {
-        "version": "1.8.3.2",
-        "changelog": "Release 1.8.3.2\n\n修 1.8.3.1 样式全部失效：Jellyfin 只搬 body 子节点，把 <style> 从 head 移进 body，分组边框/缩进/字重恢复生效",
+        "version": "1.8.3.3",
+        "changelog": "Release 1.8.3.3\n\n配置页取消组内左缩进：设置项与说明文字全部贴齐分组边框，层级靠外框与 legend 加粗表达",
         "targetAbi": "12.2.0.0",
-        "sourceUrl": "https://github.com/Louis-15/Jellyfin-Thunder-Subtitle/releases/download/v1.8.3.2/thunder-subtitle_1.8.3.2.zip",
-        "checksum": "c9e8577a60208358aa293821776bb582",
-        "timestamp": "2026-11-03T13:03:38Z"
+        "sourceUrl": "https://github.com/Louis-15/Jellyfin-Thunder-Subtitle/releases/download/v1.8.3.3/thunder-subtitle_1.8.3.3.zip",
+        "checksum": "0bbe46d583d2111a540a7a8f19316afb",
+        "timestamp": "2026-11-03T13:29:45Z"
       }
     ]
   }
