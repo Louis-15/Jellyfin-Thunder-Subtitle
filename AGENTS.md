@@ -1,7 +1,7 @@
 # Thunder Subtitle · 项目交接文档
 
 > 这份文档写给**接手继续开发的人或 AI**。读完这一篇就能直接改代码，不需要翻聊天记录。
-> 最后更新：2026-11-03，当前版本 **1.8.3.2**。
+> 最后更新：2026-11-03，当前版本 **1.8.3.3**。
 
 ---
 
@@ -29,7 +29,7 @@ dotnet build .\Jellyfin.Plugin.ThunderSubtitle\Jellyfin.Plugin.ThunderSubtitle.c
 dotnet test .\tests\Jellyfin.Plugin.ThunderSubtitle.Tests\Jellyfin.Plugin.ThunderSubtitle.Tests.csproj -c Release
 
 # 发版（自动改版本号 + commit + 打 tag + push，CI 会编译/打包/写 manifest/发 Release）
-.\release.ps1 -Version 1.8.3.2 -Changelog "改了什么"
+.\release.ps1 -Version 1.8.3.3 -Changelog "改了什么"
 ```
 
 > 本机 SDK 装在 `C:\Users\aaa\dotnet-sdk`（10.0.403），**不在 PATH 里**。如果 `dotnet` 报 “兼容的 .NET SDK 未找到”，
@@ -173,7 +173,8 @@ Jellyfin 会把它当成"插件设置页"，导致插件「设置」按钮跳到
 页面内的 AI 供应商下拉只做两件事：`OpenCode`（内置）与 `Custom`。
 
 1.8.3.1 起页面按 **`fieldset.ts-group` + `legend.ts-group-title`** 分组，组内内容统一包在
-`.ts-group-body` 里（左缩进 1.5rem）。新增设置项时**必须放进对应的 fieldset**，不要再写回
+`.ts-group-body` 里（**不做左缩进**，全部贴齐组边框——用户偏好紧凑排版，层级靠 legend 加粗 +
+外框区分）。新增设置项时**必须放进对应的 fieldset**，不要再写回
 平铺的 `.ts-section`——那套样式已经删掉了。影视库每行沿用官方 `.checkboxContainer` +
 `.emby-checkbox-label` 结构，**不要给 label 加内联 padding**：会覆盖官方自带的
 `padding-left: 2.4em`，让绝对定位的方框压住库名。
@@ -259,7 +260,7 @@ ClientScriptInjectionFilter : IStartupFilter        ← 在 DI 里 AddSingleton<
 
 ```powershell
 curl.exe -sk -X POST -H "Authorization: MediaBrowser Token=`"{KEY}`"" `
-  "https://931002.xyz:8443/Packages/Installed/Thunder%20Subtitle?version=1.8.3.2&repositoryUrl=https%3A%2F%2Fraw.githubusercontent.com%2FLouis-15%2FJellyfin-Thunder-Subtitle%2Fmain%2Fmanifest.json"
+  "https://931002.xyz:8443/Packages/Installed/Thunder%20Subtitle?version=1.8.3.3&repositoryUrl=https%3A%2F%2Fraw.githubusercontent.com%2FLouis-15%2FJellyfin-Thunder-Subtitle%2Fmain%2Fmanifest.json"
 ssh -p 2222 root@931002.xyz 'docker restart jellyfin'
 ```
 
@@ -345,6 +346,7 @@ AI prompt 与 JSON 解析（含错误回复）、搜索结果 id 编解码、预
 | 1.8.3.0 | 文档与文案去掉敏感用词（统一"按番号命名的影片"）；内部类 `JavCode` 更名 `ReleaseCode` |
 | **1.8.3.1** | 配置页改为**分组卡片布局**：`fieldset` + `legend` 划出 基本设置 / 目标影视库 / 下载与筛选 / AI 评审 / 预览缓存 / 手动运行 / 关于；修影视库勾选框被方框压住的问题 |
 | **1.8.3.2** | 修 1.8.3.1 的样式全部失效：`<style>` 从 `<head>` 移进 `<body>`（Jellyfin 只搬 body 子节点，head 里的 style 会被丢掉），缩进/边框/字重恢复生效 |
+| **1.8.3.3** | 按用户偏好取消组内左缩进（`.ts-group-body` padding 归零），只保留分组边框 + `legend` 加粗的层级感 |
 
 ---
 

@@ -30,9 +30,10 @@
             color: inherit;
         }
 
-        /* 组内内容统一缩进，让「大类标题 → 具体设置项」的层级一眼可见。 */
+        /* 组内不做整体缩进（用户偏好：全部贴齐组边框，紧凑些更好看）。
+           层级靠 legend 加粗 + 外框区分，不再靠左缩进。 */
         #ThunderSubtitleConfigPage .ts-group-body {
-            padding-left: 1.5rem;
+            padding-left: 0;
         }
 
         #ThunderSubtitleConfigPage .ts-group-body > :first-child {
