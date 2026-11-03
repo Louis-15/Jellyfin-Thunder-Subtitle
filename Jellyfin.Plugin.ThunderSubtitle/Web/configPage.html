@@ -3,18 +3,58 @@
 <head>
     <title>Thunder Subtitle</title>
     <style>
-        #ThunderSubtitleConfigPage .ts-section {
-            margin-bottom: 1.25rem;
-            padding-bottom: 1rem;
-            border-bottom: 1px solid rgba(127, 127, 127, 0.18);
+        /* 每个大类用 fieldset + legend 画出独立外框，legend 压在边框线上，
+           与 Jellyfin 常见插件设置页的分组观感保持一致。 */
+        #ThunderSubtitleConfigPage .ts-group {
+            min-width: 0;
+            margin: 0 0 1.5rem;
+            padding: 0.2rem 1.1rem 1.2rem;
+            border: 1px solid rgba(127, 127, 127, 0.45);
+            border-radius: 0.35em;
+        }
+
+        #ThunderSubtitleConfigPage .ts-group > .ts-group-title {
+            width: auto;
+            margin-left: 0.2em;
+            padding: 0 0.5em;
+            font-size: 1.08em;
+            font-weight: 600;
+            line-height: 1.7;
+            color: inherit;
+        }
+
+        /* 组内内容统一缩进，让「大类标题 → 具体设置项」的层级一眼可见。 */
+        #ThunderSubtitleConfigPage .ts-group-body {
+            padding-left: 1.5rem;
+        }
+
+        #ThunderSubtitleConfigPage .ts-group-body > :first-child {
+            margin-top: 0;
+        }
+
+        #ThunderSubtitleConfigPage .ts-group-body > :last-child {
+            margin-bottom: 0;
         }
 
         #ThunderSubtitleConfigPage .ts-libraries {
             max-height: 18rem;
             overflow-y: auto;
-            padding: 0.35rem 0.6rem;
+            padding: 0.35rem 0.75rem;
             border: 1px solid rgba(127, 127, 127, 0.25);
             border-radius: 0.3em;
+        }
+
+        /* 影视库每行沿用官方 .checkboxContainer + .emby-checkbox-label 结构。
+           切勿再给 label 写内联 padding：那会覆盖 .emby-checkbox-label 自带的
+           padding-left: 2.4em，让绝对定位的复选框方框压住库名前两个字。 */
+        #ThunderSubtitleConfigPage .ts-libraries .ts-lib-option {
+            margin: 0;
+        }
+
+        #ThunderSubtitleConfigPage .ts-libraries .ts-lib-option .emby-checkbox-label {
+            display: flex;
+            height: auto;
+            min-height: 2.2em;
         }
 
         #ThunderSubtitleConfigPage .ts-hint {
@@ -56,197 +96,194 @@
     <div data-role="content">
         <div class="content-primary">
             <form id="ThunderSubtitleForm">
-                <div class="ts-section">
-                    <div class="sectionTitleContainer flex align-items-center">
-                        <h2 class="sectionTitle">迅雷字幕</h2>
-                    </div>
-                    <p class="fieldDescription">
-                        按番号从迅雷字幕 API 下载外挂字幕，写入视频同目录的
-                        <code>&lt;片名&gt;.chi.srt</code> 或 <code>&lt;片名&gt;.chi.ass</code>。
-                        只处理所选影视库里<strong>完全没有字幕</strong>的影片，115 同步下来的
-                        <code>&lt;片名&gt;.srt</code> 永远不会被覆盖。
-                    </p>
-                    <p class="fieldDescription">
-                        在「右键 → 修改字幕 → 搜索字幕」里，每条结果后面会有
-                        <strong>预览</strong>和<strong>下载</strong>两个按钮：预览会把整份字幕读出来看，
-                        只占用服务器内存，<strong>不会写进影片文件夹</strong>。
-                    </p>
-                </div>
-
-                <div class="ts-section">
-                    <div class="checkboxContainer checkboxContainer-withDescription">
-                        <label class="emby-checkbox-label">
-                            <input id="Enabled" type="checkbox" is="emby-checkbox" />
-                            <span>启用插件</span>
-                        </label>
-                        <div class="fieldDescription checkboxFieldDescription">
-                            关闭后两个计划任务都不再下载任何字幕。
-                        </div>
-                    </div>
-                </div>
-
-                <div class="ts-section">
-                    <div class="sectionTitleContainer flex align-items-center">
-                        <h3 class="sectionTitle">目标影视库</h3>
-                        <button is="emby-button" type="button" id="ReloadLibraries" class="raised small">
-                            <span>刷新列表</span>
-                        </button>
-                    </div>
-                    <div id="LibraryList" class="ts-libraries">正在加载影视库…</div>
-                    <div class="ts-hint">只勾选 影视库；旧脚本负责的库不要同时勾选，否则会重复下载。</div>
-                </div>
-
-                <div class="ts-section">
-                    <div class="sectionTitleContainer flex align-items-center">
-                        <h3 class="sectionTitle">中文语言偏好</h3>
-                    </div>
-                    <div class="selectContainer">
-                        <label class="selectLabel" for="PreferredLanguage">优先语言</label>
-                        <select is="emby-select" id="PreferredLanguage" class="emby-select-withcolor">
-                            <option value="Simplified">简体中文（推荐）</option>
-                            <option value="Traditional">繁体中文</option>
-                        </select>
-                        <div class="fieldDescription">
-                            <strong>只有简体中文和繁体中文的候选会进入对比</strong>，英文、日文等直接丢弃。
-                            选中的这一种优先；没有合适的时才用另一种。
-                        </div>
-                    </div>
-                </div>
-
-                <div class="ts-section">
-                    <div class="ts-grid">
-                        <div class="inputContainer">
-                            <label class="inputLabel inputLabelUnfocused" for="MaxItemsPerRun">单次上限（条）</label>
-                            <input is="emby-input" id="MaxItemsPerRun" type="number" min="1" max="500" step="1" />
-                            <div class="fieldDescription">每次运行最多处理多少部影片。</div>
-                        </div>
-                        <div class="inputContainer">
-                            <label class="inputLabel inputLabelUnfocused" for="MaxCandidates">最多候选数（条）</label>
-                            <input is="emby-input" id="MaxCandidates" type="number" min="1" max="100" step="1" />
-                            <div class="fieldDescription">每部影片最多下载多少条候选来比较体积。</div>
-                        </div>
-                        <div class="inputContainer">
-                            <label class="inputLabel inputLabelUnfocused" for="RequestIntervalMs">请求间隔（毫秒）</label>
-                            <input is="emby-input" id="RequestIntervalMs" type="number" min="0" max="10000" step="50" />
-                            <div class="fieldDescription">两次<strong>搜索</strong>之间的等待时间，避免请求过快。</div>
-                        </div>
-                        <div class="inputContainer">
-                            <label class="inputLabel inputLabelUnfocused" for="DownloadConcurrency">下载并发数</label>
-                            <input is="emby-input" id="DownloadConcurrency" type="number" min="1" max="8" step="1" />
-                            <div class="fieldDescription">同时下载多少条候选，1~8，默认 4。</div>
-                        </div>
-                        <div class="inputContainer">
-                            <label class="inputLabel inputLabelUnfocused" for="ItemBudgetSeconds">单部影片下载预算（秒）</label>
-                            <input is="emby-input" id="ItemBudgetSeconds" type="number" min="20" max="600" step="10" />
-                            <div class="fieldDescription">到点就用手上已下载的候选排序，不再等慢 CDN。</div>
-                        </div>
-                        <div class="selectContainer">
-                            <label class="selectLabel" for="LogLevel">日志级别</label>
-                            <select is="emby-select" id="LogLevel" class="emby-select-withcolor">
-                                <option value="Error">只记录错误</option>
-                                <option value="Warning">错误 + 警告</option>
-                                <option value="Information">常规（推荐）</option>
-                                <option value="Debug">调试（逐条候选）</option>
-                            </select>
-                            <div class="fieldDescription">日志写入 Jellyfin 服务器日志，时间戳为北京时间。</div>
-                        </div>
-                    </div>
-
-                    <div class="checkboxContainer checkboxContainer-withDescription">
-                        <label class="emby-checkbox-label">
-                            <input id="AllowOverwritePluginSubtitle" type="checkbox" is="emby-checkbox" />
-                            <span>允许覆盖已有的插件字幕</span>
-                        </label>
-                        <div class="fieldDescription checkboxFieldDescription">
-                            勾选后，已经存在 <code>.chi.*</code> 字幕的影片也会重新比较并升级。
-                            115 同步的字幕不受影响。
-                        </div>
-                    </div>
-                </div>
-
-                <div class="ts-section">
-                    <div class="sectionTitleContainer flex align-items-center">
-                        <h3 class="sectionTitle">AI 评审（可选）</h3>
-                    </div>
-                    <p class="fieldDescription">
-                        按台词字符数排出的前几名，再让大模型横向比较一次：机翻往往<strong>更长</strong>
-                        （每个语气词都被逐字翻出来），但读起来驴唇不对马嘴。开启后 AI 只负责在候选之间排序，
-                        连接失败或返回异常时<strong>自动回退</strong>到字符数排序，不影响字幕下载。
-                    </p>
-
-                    <div class="checkboxContainer checkboxContainer-withDescription">
-                        <label class="emby-checkbox-label">
-                            <input id="AiEnabled" type="checkbox" is="emby-checkbox" />
-                            <span>启用 AI 评审</span>
-                        </label>
-                        <div class="fieldDescription checkboxFieldDescription">
-                            每部影片会调用一次模型（前 N 名放在同一个请求里比较）。
-                        </div>
-                    </div>
-
-                    <div class="ts-grid">
-                        <div class="selectContainer">
-                            <label class="selectLabel" for="AiProvider">供应商</label>
-                            <select is="emby-select" id="AiProvider" class="emby-select-withcolor">
-                                <option value="OpenCode">Open Code（内置）</option>
-                                <option value="Custom">自定义（OpenAI 兼容）</option>
-                            </select>
-                            <div class="fieldDescription">
-                                Open Code 已内置 <code>https://opencode.ai/inference/go/openai/v1</code>，
-                                并自动附带它要求的 <code>x-opencode-session</code> 请求头。
+                <fieldset class="ts-group">
+                    <legend class="ts-group-title">基本设置</legend>
+                    <div class="ts-group-body">
+                        <p class="fieldDescription">
+                            按番号从迅雷字幕 API 下载外挂字幕，写入视频同目录的
+                            <code>&lt;片名&gt;.chi.srt</code> 或 <code>&lt;片名&gt;.chi.ass</code>。
+                            只处理所选影视库里<strong>完全没有字幕</strong>的影片，115 同步下来的
+                            <code>&lt;片名&gt;.srt</code> 永远不会被覆盖。
+                        </p>
+                        <p class="fieldDescription">
+                            在「右键 → 修改字幕 → 搜索字幕」里，每条结果后面会有
+                            <strong>预览</strong>和<strong>下载</strong>两个按钮：预览会把整份字幕读出来看，
+                            只占用服务器内存，<strong>不会写进影片文件夹</strong>。
+                        </p>
+                        <div class="checkboxContainer checkboxContainer-withDescription">
+                            <label class="emby-checkbox-label">
+                                <input id="Enabled" type="checkbox" is="emby-checkbox" />
+                                <span>启用插件</span>
+                            </label>
+                            <div class="fieldDescription checkboxFieldDescription">
+                                关闭后两个计划任务都不再下载任何字幕。
                             </div>
                         </div>
                     </div>
+                </fieldset>
 
-                    <div class="inputContainer" id="AiBaseUrlRow">
-                        <label class="inputLabel inputLabelUnfocused" for="AiBaseUrl">API Base URL</label>
-                        <input is="emby-input" id="AiBaseUrl" type="text" placeholder="http://192.168.1.10:11434/v1" />
-                        <div class="fieldDescription">
-                            仅「自定义」需要填：任何 OpenAI 兼容网关，会自动补上 <code>/chat/completions</code>。
+                <fieldset class="ts-group">
+                    <legend class="ts-group-title">目标影视库</legend>
+                    <div class="ts-group-body">
+                        <div class="ts-actions">
+                            <button is="emby-button" type="button" id="ReloadLibraries" class="raised small">
+                                <span>刷新列表</span>
+                            </button>
                         </div>
+                        <div id="LibraryList" class="ts-libraries">正在加载影视库…</div>
+                        <div class="ts-hint">只勾选 影视库；旧脚本负责的库不要同时勾选，否则会重复下载。</div>
                     </div>
+                </fieldset>
 
-                    <div class="ts-grid">
-                        <div class="inputContainer">
-                            <label class="inputLabel inputLabelUnfocused" for="AiModel">模型名</label>
-                            <input is="emby-input" id="AiModel" type="text" placeholder="deepseek-v4.1-flash" />
-                            <div class="fieldDescription">Open Code 可用：deepseek-v4.1-flash、glm-5.3-flash、kimi-k3 等。</div>
-                        </div>
-                        <div class="inputContainer">
-                            <label class="inputLabel inputLabelUnfocused" for="AiApiKey">API Key</label>
-                            <input is="emby-input" id="AiApiKey" type="password" autocomplete="new-password" />
-                            <div class="fieldDescription">保存在服务器插件配置里，不会写进日志。</div>
-                        </div>
-                        <div class="inputContainer">
-                            <label class="inputLabel inputLabelUnfocused" for="AiTopCandidates">评审前 N 名</label>
-                            <input is="emby-input" id="AiTopCandidates" type="number" min="2" max="5" step="1" />
+                <fieldset class="ts-group">
+                    <legend class="ts-group-title">下载与筛选</legend>
+                    <div class="ts-group-body">
+                        <div class="selectContainer">
+                            <label class="selectLabel" for="PreferredLanguage">优先语言</label>
+                            <select is="emby-select" id="PreferredLanguage" class="emby-select-withcolor">
+                                <option value="Simplified">简体中文（推荐）</option>
+                                <option value="Traditional">繁体中文</option>
+                            </select>
                             <div class="fieldDescription">
-                                每次都送进同一个请求，2~5 比较合适。如果前几名的<strong>条数并列</strong>
-                                （同一份字幕的不同翻译），并列的那些会一起送进去比较。
+                                <strong>只有简体中文和繁体中文的候选会进入对比</strong>，英文、日文等直接丢弃。
+                                选中的这一种优先；没有合适的时才用另一种。
                             </div>
                         </div>
-                        <div class="inputContainer">
-                            <label class="inputLabel inputLabelUnfocused" for="AiTimeoutSeconds">超时（秒）</label>
-                            <input is="emby-input" id="AiTimeoutSeconds" type="number" min="10" max="300" step="5" />
+
+                        <div class="ts-grid">
+                            <div class="inputContainer">
+                                <label class="inputLabel inputLabelUnfocused" for="MaxItemsPerRun">单次上限（条）</label>
+                                <input is="emby-input" id="MaxItemsPerRun" type="number" min="1" max="500" step="1" />
+                                <div class="fieldDescription">每次运行最多处理多少部影片。</div>
+                            </div>
+                            <div class="inputContainer">
+                                <label class="inputLabel inputLabelUnfocused" for="MaxCandidates">最多候选数（条）</label>
+                                <input is="emby-input" id="MaxCandidates" type="number" min="1" max="100" step="1" />
+                                <div class="fieldDescription">每部影片最多下载多少条候选来比较体积。</div>
+                            </div>
+                            <div class="inputContainer">
+                                <label class="inputLabel inputLabelUnfocused" for="RequestIntervalMs">请求间隔（毫秒）</label>
+                                <input is="emby-input" id="RequestIntervalMs" type="number" min="0" max="10000" step="50" />
+                                <div class="fieldDescription">两次<strong>搜索</strong>之间的等待时间，避免请求过快。</div>
+                            </div>
+                            <div class="inputContainer">
+                                <label class="inputLabel inputLabelUnfocused" for="DownloadConcurrency">下载并发数</label>
+                                <input is="emby-input" id="DownloadConcurrency" type="number" min="1" max="8" step="1" />
+                                <div class="fieldDescription">同时下载多少条候选，1~8，默认 4。</div>
+                            </div>
+                            <div class="inputContainer">
+                                <label class="inputLabel inputLabelUnfocused" for="ItemBudgetSeconds">单部影片下载预算（秒）</label>
+                                <input is="emby-input" id="ItemBudgetSeconds" type="number" min="20" max="600" step="10" />
+                                <div class="fieldDescription">到点就用手上已下载的候选排序，不再等慢 CDN。</div>
+                            </div>
+                            <div class="selectContainer">
+                                <label class="selectLabel" for="LogLevel">日志级别</label>
+                                <select is="emby-select" id="LogLevel" class="emby-select-withcolor">
+                                    <option value="Error">只记录错误</option>
+                                    <option value="Warning">错误 + 警告</option>
+                                    <option value="Information">常规（推荐）</option>
+                                    <option value="Debug">调试（逐条候选）</option>
+                                </select>
+                                <div class="fieldDescription">日志写入 Jellyfin 服务器日志，时间戳为北京时间。</div>
+                            </div>
+                        </div>
+
+                        <div class="checkboxContainer checkboxContainer-withDescription">
+                            <label class="emby-checkbox-label">
+                                <input id="AllowOverwritePluginSubtitle" type="checkbox" is="emby-checkbox" />
+                                <span>允许覆盖已有的插件字幕</span>
+                            </label>
+                            <div class="fieldDescription checkboxFieldDescription">
+                                勾选后，已经存在 <code>.chi.*</code> 字幕的影片也会重新比较并升级。
+                                115 同步的字幕不受影响。
+                            </div>
                         </div>
                     </div>
-                </div>
+                </fieldset>
 
-                <div class="ts-section">
-                    <div class="sectionTitleContainer flex align-items-center">
-                        <h3 class="sectionTitle">预览缓存</h3>
+                <fieldset class="ts-group">
+                    <legend class="ts-group-title">AI 评审（可选）</legend>
+                    <div class="ts-group-body">
+                        <p class="fieldDescription">
+                            按台词字符数排出的前几名，再让大模型横向比较一次：机翻往往<strong>更长</strong>
+                            （每个语气词都被逐字翻出来），但读起来驴唇不对马嘴。开启后 AI 只负责在候选之间排序，
+                            连接失败或返回异常时<strong>自动回退</strong>到字符数排序，不影响字幕下载。
+                        </p>
+
+                        <div class="checkboxContainer checkboxContainer-withDescription">
+                            <label class="emby-checkbox-label">
+                                <input id="AiEnabled" type="checkbox" is="emby-checkbox" />
+                                <span>启用 AI 评审</span>
+                            </label>
+                            <div class="fieldDescription checkboxFieldDescription">
+                                每部影片会调用一次模型（前 N 名放在同一个请求里比较）。
+                            </div>
+                        </div>
+
+                        <div class="ts-grid">
+                            <div class="selectContainer">
+                                <label class="selectLabel" for="AiProvider">供应商</label>
+                                <select is="emby-select" id="AiProvider" class="emby-select-withcolor">
+                                    <option value="OpenCode">Open Code（内置）</option>
+                                    <option value="Custom">自定义（OpenAI 兼容）</option>
+                                </select>
+                                <div class="fieldDescription">
+                                    Open Code 已内置 <code>https://opencode.ai/inference/go/openai/v1</code>，
+                                    并自动附带它要求的 <code>x-opencode-session</code> 请求头。
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="inputContainer" id="AiBaseUrlRow">
+                            <label class="inputLabel inputLabelUnfocused" for="AiBaseUrl">API Base URL</label>
+                            <input is="emby-input" id="AiBaseUrl" type="text" placeholder="http://192.168.1.10:11434/v1" />
+                            <div class="fieldDescription">
+                                仅「自定义」需要填：任何 OpenAI 兼容网关，会自动补上 <code>/chat/completions</code>。
+                            </div>
+                        </div>
+
+                        <div class="ts-grid">
+                            <div class="inputContainer">
+                                <label class="inputLabel inputLabelUnfocused" for="AiModel">模型名</label>
+                                <input is="emby-input" id="AiModel" type="text" placeholder="deepseek-v4.1-flash" />
+                                <div class="fieldDescription">Open Code 可用：deepseek-v4.1-flash、glm-5.3-flash、kimi-k3 等。</div>
+                            </div>
+                            <div class="inputContainer">
+                                <label class="inputLabel inputLabelUnfocused" for="AiApiKey">API Key</label>
+                                <input is="emby-input" id="AiApiKey" type="password" autocomplete="new-password" />
+                                <div class="fieldDescription">保存在服务器插件配置里，不会写进日志。</div>
+                            </div>
+                            <div class="inputContainer">
+                                <label class="inputLabel inputLabelUnfocused" for="AiTopCandidates">评审前 N 名</label>
+                                <input is="emby-input" id="AiTopCandidates" type="number" min="2" max="5" step="1" />
+                                <div class="fieldDescription">
+                                    每次都送进同一个请求，2~5 比较合适。如果前几名的<strong>条数并列</strong>
+                                    （同一份字幕的不同翻译），并列的那些会一起送进去比较。
+                                </div>
+                            </div>
+                            <div class="inputContainer">
+                                <label class="inputLabel inputLabelUnfocused" for="AiTimeoutSeconds">超时（秒）</label>
+                                <input is="emby-input" id="AiTimeoutSeconds" type="number" min="10" max="300" step="5" />
+                            </div>
+                        </div>
                     </div>
-                    <p class="fieldDescription">
-                        预览过的字幕全文只在服务器内存里留一份，30 分钟没用就过期，最多同时保留 24 份，
-                        重启即清空，<strong>任何时候都不会落盘</strong>。
-                    </p>
-                    <div class="ts-actions">
-                        <button is="emby-button" type="button" id="ClearPreviewCache" class="raised">
-                            <span>清空预览缓存</span>
-                        </button>
+                </fieldset>
+
+                <fieldset class="ts-group">
+                    <legend class="ts-group-title">预览缓存</legend>
+                    <div class="ts-group-body">
+                        <p class="fieldDescription">
+                            预览过的字幕全文只在服务器内存里留一份，30 分钟没用就过期，最多同时保留 24 份，
+                            重启即清空，<strong>任何时候都不会落盘</strong>。
+                        </p>
+                        <div class="ts-actions">
+                            <button is="emby-button" type="button" id="ClearPreviewCache" class="raised">
+                                <span>清空预览缓存</span>
+                            </button>
+                        </div>
+                        <div id="PreviewCacheStatus" class="fieldDescription"></div>
                     </div>
-                    <div id="PreviewCacheStatus" class="fieldDescription"></div>
-                </div>
+                </fieldset>
 
                 <div>
                     <button is="emby-button" type="submit" class="raised button-submit block">
@@ -255,34 +292,37 @@
                 </div>
             </form>
 
-            <div class="ts-section" style="margin-top: 1.25rem;">
-                <div class="sectionTitleContainer flex align-items-center">
-                    <h3 class="sectionTitle">手动运行</h3>
+            <fieldset class="ts-group" style="margin-top: 1.25rem;">
+                <legend class="ts-group-title">手动运行</legend>
+                <div class="ts-group-body">
+                    <div class="ts-actions">
+                        <button is="emby-button" type="button" id="RunFill" class="raised">
+                            <span>立即补全</span>
+                        </button>
+                        <button is="emby-button" type="button" id="RunRepick" class="raised">
+                            <span>立即重新择优</span>
+                        </button>
+                        <button is="emby-button" type="button" id="OpenTasks" class="raised">
+                            <span>打开计划任务</span>
+                        </button>
+                    </div>
+                    <div id="RunStatus" class="ts-status" style="display: none;"></div>
                 </div>
-                <div class="ts-actions">
-                    <button is="emby-button" type="button" id="RunFill" class="raised">
-                        <span>立即补全</span>
-                    </button>
-                    <button is="emby-button" type="button" id="RunRepick" class="raised">
-                        <span>立即重新择优</span>
-                    </button>
-                    <button is="emby-button" type="button" id="OpenTasks" class="raised">
-                        <span>打开计划任务</span>
-                    </button>
-                </div>
-                <div id="RunStatus" class="ts-status" style="display: none;"></div>
-            </div>
+            </fieldset>
 
-            <div class="ts-section" style="border-bottom: none; margin-top: 1.5rem;">
-                <div class="fieldDescription">
-                    插件仓库地址（控制台 → 插件 → 仓库，添加后可在此页直接检查更新）：
-                    <br />
-                    <code>https://raw.githubusercontent.com/Louis-15/Jellyfin-Thunder-Subtitle/main/manifest.json</code>
-                    <br />
-                    源码与问题反馈：
-                    <a href="https://github.com/Louis-15/Jellyfin-Thunder-Subtitle" target="_blank" rel="noopener">github.com/Louis-15/Jellyfin-Thunder-Subtitle</a>
+            <fieldset class="ts-group">
+                <legend class="ts-group-title">关于</legend>
+                <div class="ts-group-body">
+                    <div class="fieldDescription">
+                        插件仓库地址（控制台 → 插件 → 仓库，添加后可在此页直接检查更新）：
+                        <br />
+                        <code>https://raw.githubusercontent.com/Louis-15/Jellyfin-Thunder-Subtitle/main/manifest.json</code>
+                        <br />
+                        源码与问题反馈：
+                        <a href="https://github.com/Louis-15/Jellyfin-Thunder-Subtitle" target="_blank" rel="noopener">github.com/Louis-15/Jellyfin-Thunder-Subtitle</a>
+                    </div>
                 </div>
-            </div>
+            </fieldset>
         </div>
     </div>
 
@@ -320,10 +360,16 @@
 
                 libraries.forEach(function (library) {
                     var id = library.ItemId || library.Id;
+
+                    // 每一行用官方 .checkboxContainer 包一层：emby-checkbox 会把
+                    // .checkboxOutline 绝对定位到 label 左边缘，靠 label 自带的
+                    // padding-left: 2.4em 给方框留位。这里千万不要写内联
+                    // display / padding，否则会覆盖该样式导致方框压住库名前两个字。
+                    var row = document.createElement('div');
+                    row.className = 'checkboxContainer ts-lib-option';
+
                     var label = document.createElement('label');
                     label.className = 'emby-checkbox-label';
-                    label.style.display = 'block';
-                    label.style.padding = '0.2rem 0';
 
                     var input = document.createElement('input');
                     input.type = 'checkbox';
@@ -336,7 +382,8 @@
 
                     label.appendChild(input);
                     label.appendChild(span);
-                    box.appendChild(label);
+                    row.appendChild(label);
+                    box.appendChild(row);
                 });
             }
 
