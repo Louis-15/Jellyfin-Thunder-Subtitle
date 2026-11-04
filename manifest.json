@@ -9,12 +9,12 @@
     "imageUrl": "https://raw.githubusercontent.com/Louis-15/Jellyfin-Thunder-Subtitle/main/logo.png",
     "versions": [
       {
-        "version": "1.9.1.0",
-        "changelog": "Release 1.9.1.0\n\nAI 评审候选改为按条数分档：相差 2% 算同一档，取前 3 档、每档 2 份（最多 6 份），避免条数最多的机翻把真正的人翻挤出评审",
+        "version": "1.9.1.1",
+        "changelog": "Release 1.9.1.1\n\n修 AI 评审取样不足：档位不够时继续往后补，凑满 6 份（原先条数分散时只选出 3 份）",
         "targetAbi": "12.2.0.0",
-        "sourceUrl": "https://github.com/Louis-15/Jellyfin-Thunder-Subtitle/releases/download/v1.9.1.0/thunder-subtitle_1.9.1.0.zip",
-        "checksum": "4e1fba9cc99145d1e4d5b6abaa81f66c",
-        "timestamp": "2026-11-03T18:58:48Z"
+        "sourceUrl": "https://github.com/Louis-15/Jellyfin-Thunder-Subtitle/releases/download/v1.9.1.1/thunder-subtitle_1.9.1.1.zip",
+        "checksum": "af9eb1dff4032411a4a00a1e4d793701",
+        "timestamp": "2026-11-04T11:08:56Z"
       }
     ]
   }
