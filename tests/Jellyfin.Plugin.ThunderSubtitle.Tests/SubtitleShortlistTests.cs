@@ -58,8 +58,10 @@ public class SubtitleShortlistTests
     }
 
     [Fact]
-    public void CandidatesBeyondTheThirdTierAreDropped()
+    public void ThirdTierIsPreferredOverLaterOnes()
     {
+        // 前三档每档只有 1 份（共 3 份），必须补到 6 份；
+        // 但补的顺序是按档位往后，所以第 4、5 档会先于任何同档副本进来。
         var ranked = new[]
         {
             Pick("a", 900, 20), Pick("b", 800, 20),
@@ -69,21 +71,24 @@ public class SubtitleShortlistTests
 
         var shortlist = SubtitleFinder.SelectShortlist(ranked, 2);
 
-        Assert.Equal(new[] { "a", "b", "c" }, shortlist.Select(pick => pick.CandidateName));
+        Assert.Equal(new[] { "a", "b", "c", "d", "e" }, shortlist.Select(pick => pick.CandidateName));
     }
 
     [Fact]
     public void ShortlistNeverExceedsTheJudgedCap()
     {
-        // 4 档 × 3 份、每档要 3 份 —— 必须被 MaxJudgedCandidates 截住。
-        var ranked = Enumerable.Range(0, 12)
-            .Select(i => Pick("p" + i, 900 - ((i / 3) * 100), 20))
+        // 上限是 MaxJudgedCandidates：即使每档要 3 份、档位很多，也不能无限扩张。
+        var ranked = Enumerable.Range(0, 40)
+            .Select(i => Pick("p" + i, 2000 - (i * 40), 20))
             .ToArray();
 
         var shortlist = SubtitleFinder.SelectShortlist(ranked, 3);
 
-        Assert.Equal(SubtitleFinder.MaxJudgedCandidates, shortlist.Count);
+        Assert.True(shortlist.Count <= SubtitleFinder.MaxJudgedCandidates, "shortlist 超过上限");
+        Assert.Equal(Math.Min(3 * SubtitleFinder.ShortlistTiers, ShortlistCap), shortlist.Count);
     }
+
+    private const int ShortlistCap = 12;
 
     [Fact]
     public void ZeroCueCountsNeverJoinARealTier()
@@ -98,6 +103,49 @@ public class SubtitleShortlistTests
         var shortlist = SubtitleFinder.SelectShortlist(ranked, 2);
 
         Assert.Equal(new[] { "good", "junk" }, shortlist.Select(pick => pick.CandidateName));
+    }
+
+    [Fact]
+    public void FillsUpToTheTargetWhenEveryCueCountStartsItsOwnTier()
+    {
+        // 真实日志里的场景：候选 13 份，条数很分散（1910/1434/928/…），每档只有 1 份。
+        // 只做「前 3 档 × 每档 2 份」会只选出 3 份，用户看到的 AI 评分就只有 3 条。
+        // 期望：继续往后按档位补，凑满 6 份。
+        var ranked = new[]
+        {
+            Pick("a", 1910, 20), Pick("b", 1434, 20), Pick("c", 928, 20),
+            Pick("d", 800, 20), Pick("e", 700, 20), Pick("f", 600, 20),
+            Pick("g", 500, 20)
+        };
+
+        var shortlist = SubtitleFinder.SelectShortlist(ranked, 2);
+
+        Assert.Equal(
+            new[] { "a", "b", "c", "d", "e", "f" },
+            shortlist.Select(pick => pick.CandidateName));
+    }
+
+    [Fact]
+    public void FillStopsWhenCandidatesRunOut()
+    {
+        var ranked = new[] { Pick("a", 1910, 20), Pick("b", 1434, 20), Pick("c", 928, 20) };
+
+        var shortlist = SubtitleFinder.SelectShortlist(ranked, 2);
+
+        Assert.Equal(3, shortlist.Count);
+    }
+
+    [Fact]
+    public void FillDoesNotOverflowTheTarget()
+    {
+        // 前 3 档每档只有 1 份（共 3 份），后面还有很多档 —— 只能补到 6 份为止。
+        var ranked = Enumerable.Range(0, 12)
+            .Select(i => Pick("p" + i, 2000 - (i * 100), 20))
+            .ToArray();
+
+        var shortlist = SubtitleFinder.SelectShortlist(ranked, 2);
+
+        Assert.Equal(6, shortlist.Count);
     }
 
     [Fact]

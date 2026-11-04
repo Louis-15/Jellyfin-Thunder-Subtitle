@@ -1,7 +1,7 @@
 # Thunder Subtitle · 项目交接文档
 
 > 这份文档写给**接手继续开发的人或 AI**。读完这一篇就能直接改代码，不需要翻聊天记录。
-> 最后更新：2026-11-04，当前版本 **1.9.1.0**。
+> 最后更新：2026-11-04，当前版本 **1.9.1.1**。
 
 ---
 
@@ -28,7 +28,8 @@ dotnet build .\Jellyfin.Plugin.ThunderSubtitle\Jellyfin.Plugin.ThunderSubtitle.c
 # 跑测试（172 个）
 dotnet test .\tests\Jellyfin.Plugin.ThunderSubtitle.Tests\Jellyfin.Plugin.ThunderSubtitle.Tests.csproj -c Release
 
-# 发版（自动改版本号 + commit + 打 tag + push，CI 会编译/打包/写 manifest/发 Release）
+# 发版（⚠️ 仅在用户明确说"发版 / 发布 / 出新版本"后才可执行；AI 不得自行调用）
+# 自动改版本号 + commit + 打 tag + push，CI 会编译/打包/写 manifest/发 Release
 .\release.ps1 -Version 1.8.3.3 -Changelog "改了什么"
 ```
 
@@ -250,6 +251,10 @@ ClientScriptInjectionFilter : IStartupFilter        ← 在 DI 里 AddSingleton<
 
 ## 8. 发版与部署（固定闭环）
 
+> 🚫 **前置条件**：这条闭环只在**用户明确下令发版后**才启动。
+> 代码改完 + 测试通过就停下汇报（改动 / 建议版本号 / changelog 草稿），
+> **不得自行执行 `release.ps1`、不得打 tag、不得 push**。
+
 ```
 改代码 → dotnet test → .\release.ps1 -Version x.y.z.w -Changelog "..."
         → CI: test → build.ps1 打包 → MD5 写进 manifest.json → 提交 manifest → 发 Release
@@ -348,7 +353,8 @@ AI prompt 与 JSON 解析（含错误回复）、搜索结果 id 编解码、预
 | **1.8.3.2** | 修 1.8.3.1 的样式全部失效：`<style>` 从 `<head>` 移进 `<body>`（Jellyfin 只搬 body 子节点，head 里的 style 会被丢掉），缩进/边框/字重恢复生效 |
 | **1.8.3.3** | 按用户偏好取消组内左缩进（`.ts-group-body` padding 归零），只保留分组边框 + `legend` 加粗的层级感 |
 | **1.9.0.0** | 新增**实时入库补字幕**：`ItemWatchService` 每 30 秒查一次「最近 6 小时入库且已刮削完成（ProviderIds 非空）」的影片，只对这些片子跑 `SubtitleJob.ProcessItemsAsync`，**不扫全库**。配置项 `RealtimeFill` 默认开。原有 6 小时定时任务保留作兜底。顺带修复 CI 回写 manifest 时的 rebase 冲突（改成在 main 上重新生成） |
-| **1.9.1.0** | AI 评审取样规则重做：按**条数分档**（相差 2% 算同档）→ 取前 3 档 → 每档 2 份（最多 6 份）。旧规则「取前 N 名 + 条数并列全带上」会让同一份机翻的多个转码占满评审池，把后面的人翻挤掉。新增配置项 `AiPerTier`（每档份数，默认 2）；`AiTopCandidates` 保留字段但不再参与筛选 |
+| **1.9.1.0** | AI 评审取样规则重做：按**条数分档**（相差 2% 算同档）→ 取前 3 档 → 每档 2 份。旧规则「取前 N 名 + 条数并列全带上」会让同一份机翻的多个转码占满评审池，把后面的人翻挤掉。新增配置项 `AiPerTier`（每档份数，默认 2）；`AiTopCandidates` 保留字段但不再参与筛选 |
+| **1.9.1.1** | 修 1.9.1.0 的取样不足：**档位不够时继续往后补，直到凑满 6 份**。真实日志里 13 份候选的条数很分散（1910/1434/928…），每档只有 1 份，只做「前 3 档 × 2 份」会选出 3 份，导致手动改字幕时只有 3 条 AI 评分。`MaxJudgedCandidates` 8→12 |
 
 ---
 
@@ -375,7 +381,10 @@ AI prompt 与 JSON 解析（含错误回复）、搜索结果 id 编解码、预
 
 ## 13. 接手时请遵守的约定
 
-1. **一次只改一件事，每改完发一个版本**（用户明确要求，不要攒成一个版本）。
+1. **一次只改一件事；改完就停，不要自己发版**（2026-11-04 用户更正：旧约定"每改完发一个版本"**已作废**）。
+   代码改完 + `dotnet test` 全绿后，只汇报「改了什么 + 建议版本号 + changelog 草稿」，
+   **必须等用户明确说"发版 / 发布 / 出新版本"** 才能执行 `release.ps1`。
+   注意"不要攒成大版本"与"不要自作主张发版"两条同时成立：既不许攒，也不许自己发。
 2. **不要动已经正常的东西**：搜索/语言/下载/写盘逻辑目前是稳定态。
 3. 发版前必须 `dotnet test` 全绿；改前端（`configPage.html` / `clientScript.js`）先用 `node --check` 验语法。
 4. 任何"服务端看起来对了"的结论，都要在服务器上用真实接口再验一遍再汇报。

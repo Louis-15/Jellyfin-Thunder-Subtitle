@@ -183,7 +183,7 @@ public sealed class SubtitleFinder : ISubtitleFinder
         var shortlist = SelectShortlist(ranked, config.AiPerTier);
         if (shortlist.Count > 1)
         {
-            _log.Info($"[{code}] AI 评审：候选 {ranked.Count} 份按条数分档，取前 {ShortlistTiers} 档共 {shortlist.Count} 份。");
+            _log.Info($"[{code}] AI 评审：候选 {ranked.Count} 份按条数分档，选出 {shortlist.Count} 份送审。");
         }
 
         var verdicts = await _ai
@@ -207,7 +207,7 @@ public sealed class SubtitleFinder : ISubtitleFinder
     }
 
     /// <summary>Hard cap on how many candidates one judgement may compare.</summary>
-    internal const int MaxJudgedCandidates = 8;
+    internal const int MaxJudgedCandidates = 12;
 
     /// <summary>
     /// 送 AI 评审时覆盖几个「条数档位」。
@@ -227,12 +227,18 @@ public sealed class SubtitleFinder : ISubtitleFinder
     ///
     /// 规则：
     /// 1. 按「条数」把候选分档，相邻差 ≤ <see cref="TierTolerancePercent"/> 算同一档；
-    /// 2. 取条数最多的前 <see cref="ShortlistTiers"/> 档；
-    /// 3. 每档再挑 <paramref name="perTier"/> 份（档内按质量排序取前面的）。
+    /// 2. 前 <see cref="ShortlistTiers"/> 档，每档挑 <paramref name="perTier"/> 份
+    ///    （档内按质量排序取前面的）；
+    /// 3. **档位不足时不凑数就完事**：从第 4 档起继续按档位顺序补，直到凑满
+    ///    <c>perTier × ShortlistTiers</c> 份，最多 <see cref="MaxJudgedCandidates"/> 份。
     ///
     /// 为什么不再只取「前 N 名」：条数最多的那一批往往是同一份机翻的不同转码，
     /// 而 AI 翻译的条目通常还更多。只按条数取前 N，会把排在后面的人翻彻底挤出评审，
     /// 于是模型只能在几份机翻里挑一份"最不烂的"。
+    ///
+    /// 为什么第 3 步是必须的：实际候选的条数常常很分散（例：1910 / 1434 / 928），
+    /// 每档只有一份，只做前两步就只能选出 3 份。用户要的是「6 份一起比」，
+    /// 「每档 2 份」只是达成它的手段。
     /// </summary>
     /// <param name="ranked">Chinese candidates, best first.</param>
     /// <param name="perTier">每档取几份。</param>
@@ -245,6 +251,7 @@ public sealed class SubtitleFinder : ISubtitleFinder
         }
 
         var take = Math.Clamp(perTier, 1, MaxJudgedCandidates);
+        var target = Math.Min(take * ShortlistTiers, MaxJudgedCandidates);
 
         // 质量顺序：Rank 已经把「名字带番号 / 机翻标记 / 语言 / 字数 / 条数」都算进去了，
         // 档内挑代表时优先取它排在前面的那几个。
@@ -271,11 +278,27 @@ public sealed class SubtitleFinder : ISubtitleFinder
 
         var shortlist = new List<SubtitlePick>();
 
+        // 第一轮：前 N 档，每档取 take 份。
         foreach (var tier in tiers.Take(ShortlistTiers))
         {
             shortlist.AddRange(tier
                 .OrderBy(pick => qualityIndex.TryGetValue(pick, out var index) ? index : int.MaxValue)
                 .Take(take));
+        }
+
+        // 第二轮：档位不够多（每档只有一两份）时继续往后补，直到凑满目标数量。
+        // 仍然按档位顺序取，所以补进来的依然是「不同条数区间」的样本，
+        // 不会被同一档里剩下的机翻副本填满。
+        foreach (var tier in tiers.Skip(ShortlistTiers))
+        {
+            if (shortlist.Count >= target)
+            {
+                break;
+            }
+
+            shortlist.AddRange(tier
+                .OrderBy(pick => qualityIndex.TryGetValue(pick, out var index) ? index : int.MaxValue)
+                .Take(target - shortlist.Count));
         }
 
         return shortlist.Take(MaxJudgedCandidates).ToList();
