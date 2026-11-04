@@ -9,12 +9,12 @@
     "imageUrl": "https://raw.githubusercontent.com/Louis-15/Jellyfin-Thunder-Subtitle/main/logo.png",
     "versions": [
       {
-        "version": "1.9.1.1",
-        "changelog": "Release 1.9.1.1\n\n修 AI 评审取样不足：档位不够时继续往后补，凑满 6 份（原先条数分散时只选出 3 份）",
+        "version": "1.9.1.2",
+        "changelog": "Release 1.9.1.2\n\n设置项改为固定两列排布（修 3+1 孤行）；删除无效的「打开计划任务」按钮",
         "targetAbi": "12.2.0.0",
-        "sourceUrl": "https://github.com/Louis-15/Jellyfin-Thunder-Subtitle/releases/download/v1.9.1.1/thunder-subtitle_1.9.1.1.zip",
-        "checksum": "af9eb1dff4032411a4a00a1e4d793701",
-        "timestamp": "2026-11-04T11:08:56Z"
+        "sourceUrl": "https://github.com/Louis-15/Jellyfin-Thunder-Subtitle/releases/download/v1.9.1.2/thunder-subtitle_1.9.1.2.zip",
+        "checksum": "4e346eb200a002d4fa7fde82721585bb",
+        "timestamp": "2026-11-04T11:23:10Z"
       }
     ]
   }
