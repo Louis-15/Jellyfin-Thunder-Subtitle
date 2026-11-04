@@ -301,6 +301,35 @@ ssh -p 2222 root@931002.xyz "docker logs --tail 400 jellyfin 2>&1 | grep -a 预�
   排查时要么不带 `Accept-Encoding`，要么先解压。
 - 升级后旧版本目录可以删：`docker exec jellyfin rm -rf '/config/plugins/Thunder Subtitle_<old>'`。
 
+### Git 推送需要代理（2026-11-04 踩过）
+
+这台机器的 Clash 监听 `127.0.0.1:7897`，系统代理是开的，但 **git / curl 不会自动走系统代理**。
+未配置时代码是 HTTPS 直接连 `github.com:443` → 超时 20 秒后报
+`Failed to connect to github.com port 443`。判断方法：
+
+```powershell
+curl.exe -s -o NUL -w "%{http_code} %{time_total}`n" --max-time 15 "https://api.github.com"  # 200 → 代理通
+curl.exe -s -o NUL -w "%{http_code} %{time_total}`n" --max-time 15 "https://github.com"      # 000 → 直连被断
+```
+
+修复（仓库级，只影响这个仓库）：
+
+```powershell
+git config http.proxy  "http://127.0.0.1:7897"
+git config https.proxy "http://127.0.0.1:7897"
+```
+
+下载 Release 资产同样要 `--proxy`：
+
+```powershell
+curl.exe -sL --proxy "http://127.0.0.1:7897" -o <file> "<release url>"
+```
+
+另外 `git push` 偶尔会返回 `remote: Internal Server Error` / `remote rejected`，
+这是 GitHub 侧的瞬时故障，**重试 1-2 次即可**，不要当成仓库配置问题去乱改。
+`release.ps1` 中途失败时本地 commit 和 tag 都已经建好，恢复后手动
+`git push origin main` + `git push origin v<version>` 即可，**不要重复跑 release.ps1**（会因没有改动而报错）。
+
 ---
 
 ## 9. 测试
