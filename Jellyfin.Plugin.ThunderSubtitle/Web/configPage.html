@@ -80,8 +80,25 @@
 
         #ThunderSubtitleConfigPage .ts-grid {
             display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(15rem, 1fr));
+
+            /* 固定两列。原先是 repeat(auto-fit, minmax(15rem, 1fr))，
+               宽屏下会自动挤进 3 个，页面上就出现「第一行 3 个、第二行 1 个」的孤行。
+               4 个设置项现在稳定排成 2×2。 */
+            grid-template-columns: repeat(2, minmax(0, 1fr));
             gap: 0.5rem 1.25rem;
+        }
+
+        /* 只有一个设置项的行（供应商下拉）单独占满整行，
+           否则它会缩在左半边，右边留一块空白。 */
+        #ThunderSubtitleConfigPage .ts-grid.ts-grid-wide {
+            grid-template-columns: minmax(0, 1fr);
+        }
+
+        /* 窄屏（手机或半屏窗口）退回单列，两个输入框挤一行会窄到没法用。 */
+        @media (max-width: 45rem) {
+            #ThunderSubtitleConfigPage .ts-grid {
+                grid-template-columns: minmax(0, 1fr);
+            }
         }
 
         #ThunderSubtitleConfigPage .ts-status {
@@ -224,7 +241,7 @@
                             </div>
                         </div>
 
-                        <div class="ts-grid">
+                        <div class="ts-grid ts-grid-wide">
                             <div class="selectContainer">
                                 <label class="selectLabel" for="AiProvider">供应商</label>
                                 <select is="emby-select" id="AiProvider" class="emby-select-withcolor">
@@ -306,9 +323,6 @@
                         </button>
                         <button is="emby-button" type="button" id="RunRepick" class="raised">
                             <span>立即重新择优</span>
-                        </button>
-                        <button is="emby-button" type="button" id="OpenTasks" class="raised">
-                            <span>打开计划任务</span>
                         </button>
                     </div>
                     <div id="RunStatus" class="ts-status" style="display: none;"></div>
@@ -552,9 +566,6 @@
             });
             document.querySelector('#RunRepick').addEventListener('click', function () {
                 runTask(RepickTaskKey);
-            });
-            document.querySelector('#OpenTasks').addEventListener('click', function () {
-                Dashboard.navigate('scheduledtasks');
             });
             document.querySelector('#ClearPreviewCache').addEventListener('click', clearPreviewCache);
         })();

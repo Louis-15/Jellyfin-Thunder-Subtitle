@@ -242,7 +242,7 @@ API Key:  （留空）
 **隐私说明**：开启后会把字幕抽样文本（部分对白）发送到你配置的服务端。
 介意的话用本地 Ollama / LM Studio。
 
-配置页还有「立即补全」「立即重新择优」「打开计划任务」，直接调用 Jellyfin 自带的 `/ScheduledTasks` API。
+配置页「手动运行」区还有「立即补全」「立即重新择优」，直接调用 Jellyfin 自带的 `/ScheduledTasks` API。
 
 **首次上线后建议停掉旧的 python 定时器**（2026-11-04 已在服务器上停用并删除，
 备份在 `/root/backup/jellyfin-legacy-20261104/`），避免两套逻辑重复下载：
