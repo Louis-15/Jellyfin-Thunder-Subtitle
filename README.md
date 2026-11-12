@@ -5,9 +5,6 @@ Jellyfin 12.2 插件：为影视库中**完全没有字幕**的影片，按番�
 
 面向 Jellyfin **12.2.0**（`targetAbi = 12.2.0.0`，`net10.0`）。
 
-> **要接手继续开发？先读 [`AGENTS.md`](./AGENTS.md)**：技术栈、仓库结构、处理管线、Jellyfin 集成点、
-> 发版部署流程、已知的坑和当前状态都在那一篇里。本 README 只写"插件能给用户做什么"。
-
 ## 功能
 
 | 计划任务 | Key | 默认触发 | 作用 |
@@ -136,23 +133,31 @@ https://raw.githubusercontent.com/Louis-15/Jellyfin-Thunder-Subtitle/main/manife
 然后在「目录」里搜索 **Thunder Subtitle** 安装。之后插件页面会出现更新提示，
 「更新」即可升级到新版本，不需要再手工传文件。
 
-### 方式 B：手工安装
+### 方式 B：手工安装（服务器访问不了 GitHub 时）
+
+先备份插件目录，重启 Jellyfin 会造成几十秒不可用。
+
+下载 Release 里的 `thunder-subtitle_<version>.zip`，解压到 Jellyfin 配置目录下的
+`plugins/ThunderSubtitle_<version>/`：
 
 ```bash
-# 宿主机
+# 以 Docker 部署为例：/path/to/jellyfin/config 换成你映射给容器的配置目录
+CONFIG=/path/to/jellyfin/config
 VERSION=1.0.0.0
-scp -P 2222 artifacts/thunder-subtitle_$VERSION.zip root@931002.xyz:/tmp/
-ssh -p 2222 root@931002.xyz "
-  mkdir -p /www/jellyfin/config/plugins/ThunderSubtitle_$VERSION &&
-  unzip -o /tmp/thunder-subtitle_$VERSION.zip -d /www/jellyfin/config/plugins/ThunderSubtitle_$VERSION &&
-  docker restart jellyfin"
+mkdir -p "$CONFIG/plugins/ThunderSubtitle_$VERSION"
+unzip -o thunder-subtitle_$VERSION.zip -d "$CONFIG/plugins/ThunderSubtitle_$VERSION"
+docker restart jellyfin   # 容器名按实际填写
 
 # 确认加载
 docker logs --tail 200 jellyfin 2>&1 | grep -i "Thunder Subtitle"
 ```
 
-插件目录里必须是 `Jellyfin.Plugin.ThunderSubtitle.dll` + `meta.json` + `logo.png`，不要再放 Jellyfin 自身的 dll
-（项目已设置 `CopyLocalLockFileAssemblies=false`）。
+- **Docker**：上面的 `/path/to/jellyfin/config` 是**宿主机**上映射给容器 `/config` 的目录；
+- **NAS（群晖 / 威联通 / UGREEN 等）**：不需要 SSH，在 NAS 的文件管理器里把 zip 解压到映射出来的
+  `config/plugins/ThunderSubtitle_<version>/`，再在容器管理界面重启 Jellyfin 即可。
+
+插件目录里必须是 `Jellyfin.Plugin.ThunderSubtitle.dll` + `meta.json` + `logo.png`，不要多套一层文件夹，
+也不要再放 Jellyfin 自身的 dll（项目已设置 `CopyLocalLockFileAssemblies=false`）。
 
 ## 发布新版本
 
