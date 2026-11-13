@@ -25,7 +25,7 @@ public class AiSubtitleJudgeTests
     [Fact]
     public void RequestCarriesBothCandidatesAndCode()
     {
-        var request = AiSubtitleJudge.BuildRequest("FSDSS-272", [Pick("a.srt", SrtA), Pick("b.srt", SrtA)], Settings());
+        var request = AiSubtitleJudge.BuildRequest(SearchTarget.ForCode("FSDSS-272"), [Pick("a.srt", SrtA), Pick("b.srt", SrtA)], Settings());
 
         Assert.Equal("test-model", request.Model);
         Assert.Equal(0, request.Temperature);
@@ -49,7 +49,7 @@ public class AiSubtitleJudgeTests
         }
 
         var longText = string.Join('\n', lines);
-        var request = AiSubtitleJudge.BuildRequest("X-1", [Pick("a.srt", longText), Pick("b.srt", SrtA)], Settings(6));
+        var request = AiSubtitleJudge.BuildRequest(SearchTarget.ForCode("X-1"), [Pick("a.srt", longText), Pick("b.srt", SrtA)], Settings(6));
 
         var user = request.Messages[1].Content;
         Assert.Contains("第0句台词", user);
@@ -62,7 +62,7 @@ public class AiSubtitleJudgeTests
     [Fact]
     public void PromptCarriesDialogueOnly()
     {
-        var request = AiSubtitleJudge.BuildRequest("X-1", [Pick("a.srt", SrtA), Pick("b.srt", SrtA)], Settings());
+        var request = AiSubtitleJudge.BuildRequest(SearchTarget.ForCode("X-1"), [Pick("a.srt", SrtA), Pick("b.srt", SrtA)], Settings());
 
         var user = request.Messages[1].Content;
         Assert.Contains("看 这是今年的新人", user);
@@ -74,7 +74,7 @@ public class AiSubtitleJudgeTests
     public void SampleRespectsCharacterCap()
     {
         var big = SrtA.Replace("看 这是今年的新人", new string('长', 5000));
-        var request = AiSubtitleJudge.BuildRequest("X-1", [Pick("a.srt", big), Pick("b.srt", SrtA)], Settings());
+        var request = AiSubtitleJudge.BuildRequest(SearchTarget.ForCode("X-1"), [Pick("a.srt", big), Pick("b.srt", SrtA)], Settings());
         var user = request.Messages[1].Content;
 
         Assert.True(user.Length < 8000, $"prompt was {user.Length} chars");

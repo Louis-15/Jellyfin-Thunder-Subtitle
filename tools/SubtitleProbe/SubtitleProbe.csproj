@@ -15,7 +15,9 @@
     be run on any machine with the .NET 10 SDK and no Jellyfin installation.
   -->
   <ItemGroup>
-    <Compile Include="..\..\Jellyfin.Plugin.ThunderSubtitle\Core\JavCode.cs" Link="Core\JavCode.cs" />
+    <Compile Include="..\..\Jellyfin.Plugin.ThunderSubtitle\Core\ReleaseCode.cs" Link="Core\ReleaseCode.cs" />
+    <Compile Include="..\..\Jellyfin.Plugin.ThunderSubtitle\Core\SearchTarget.cs" Link="Core\SearchTarget.cs" />
+    <Compile Include="..\..\Jellyfin.Plugin.ThunderSubtitle\Core\TitleMatch.cs" Link="Core\TitleMatch.cs" />
     <Compile Include="..\..\Jellyfin.Plugin.ThunderSubtitle\Core\SubtitleText.cs" Link="Core\SubtitleText.cs" />
     <Compile Include="..\..\Jellyfin.Plugin.ThunderSubtitle\Core\SubtitleContent.cs" Link="Core\SubtitleContent.cs" />
     <Compile Include="..\..\Jellyfin.Plugin.ThunderSubtitle\Core\SubtitleRanker.cs" Link="Core\SubtitleRanker.cs" />

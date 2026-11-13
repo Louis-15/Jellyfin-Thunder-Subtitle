@@ -45,6 +45,7 @@ public sealed class SubtitleJob
     private readonly IProviderManager _providerManager;
     private readonly IDirectoryService _directoryService;
     private readonly ISubtitleFinder _finder;
+    private readonly ILibraryContext _libraryContext;
     private readonly ProvenanceStore _provenance;
     private readonly PluginLog _log;
 
@@ -53,6 +54,7 @@ public sealed class SubtitleJob
     /// <param name="providerManager">Used to refresh an item so Jellyfin sees the new sidecar.</param>
     /// <param name="directoryService">Needed to build <see cref="MetadataRefreshOptions"/>.</param>
     /// <param name="finder">The shared search pipeline.</param>
+    /// <param name="libraryContext">Resolves per-library search mode and builds the search target.</param>
     /// <param name="provenance">Ledger of subtitles this plugin wrote.</param>
     /// <param name="logger">Logger.</param>
     public SubtitleJob(
@@ -60,6 +62,7 @@ public sealed class SubtitleJob
         IProviderManager providerManager,
         IDirectoryService directoryService,
         ISubtitleFinder finder,
+        ILibraryContext libraryContext,
         ProvenanceStore provenance,
         ILogger<SubtitleJob> logger)
     {
@@ -67,6 +70,7 @@ public sealed class SubtitleJob
         _providerManager = providerManager;
         _directoryService = directoryService;
         _finder = finder;
+        _libraryContext = libraryContext;
         _provenance = provenance;
         _log = new PluginLog(logger);
     }
@@ -85,7 +89,7 @@ public sealed class SubtitleJob
         }
 
         var stopwatch = Stopwatch.StartNew();
-        var mode = repick ? "重新择优" : "自动补全";
+        var mode = repick ? "自动择优" : "自动补全";
 
         try
         {
@@ -105,14 +109,31 @@ public sealed class SubtitleJob
                 return;
             }
 
-            var items = EnumerateItems(libraries);
-            if (items.Count == 0)
+            // 每个库可以单独关掉「自动补全」和「自动择优」：
+            // 大部分影片自带字幕，用户只希望对个别库自动下载。
+            var active = libraries
+                .Where(id => repick ? config.IsAutoRepickEnabled(id) : config.IsAutoFillEnabled(id))
+                .ToList();
+
+            if (active.Count == 0)
             {
-                _log.Warn($"{mode}：所选影视库里没有查到任何电影条目，请检查「目标影视库」是否选对。");
+                _log.Info($"{mode}：所选影视库都关闭了「{(repick ? "自动择优" : "自动补全")}」，本次跳过。");
                 return;
             }
 
-            var queue = items.Where(item => ShouldProcess(item, config, repick)).ToList();
+            if (active.Count < libraries.Count)
+            {
+                _log.Info($"{mode}：{libraries.Count} 个库中有 {libraries.Count - active.Count} 个关闭了「{(repick ? "自动择优" : "自动补全")}」，本次不处理。");
+            }
+
+            var items = EnumerateItems(active);
+            if (items.Count == 0)
+            {
+                _log.Warn($"{mode}：所选影视库里没有查到任何可处理的条目，请检查「目标影视库」是否选对。");
+                return;
+            }
+
+            var queue = items.Where(entry => ShouldProcess(entry.Item, repick)).ToList();
             _log.Info($"{mode}开始：影视库 {libraries.Count} 个，条目 {items.Count} 条，待处理 {queue.Count} 条，单次上限 {config.MaxItemsPerRun} 条。");
 
             int processed = 0, written = 0, kept = 0, empty = 0, failed = 0;
@@ -128,11 +149,11 @@ public sealed class SubtitleJob
                     break;
                 }
 
-                var item = queue[index];
+                var (item, searchMode) = queue[index];
                 ProcessResult result;
                 try
                 {
-                    result = await ProcessAsync(item, config, repick, cancellationToken).ConfigureAwait(false);
+                    result = await ProcessAsync(item, searchMode, config, repick, cancellationToken).ConfigureAwait(false);
                 }
                 catch (OperationCanceledException)
                 {
@@ -214,7 +235,7 @@ public sealed class SubtitleJob
                 return false;
             }
 
-            var queue = new List<BaseItem>();
+            var queue = new List<(BaseItem Item, SubtitleSearchMode Mode)>();
             foreach (var id in itemIds)
             {
                 var item = _libraryManager.GetItemById(id);
@@ -224,12 +245,20 @@ public sealed class SubtitleJob
                 }
 
                 // 已经有好字幕、或者根本读不到文件，直接跳过。
-                if (!ShouldProcess(item, config, repick: false))
+                if (!ShouldProcess(item, repick: false))
                 {
                     continue;
                 }
 
-                queue.Add(item);
+                // 实时入库同样受「自动补全」开关约束：关掉的库不自动下载。
+                var libraryId = _libraryContext.LibraryIdForItem(item);
+                if (libraryId is not null && !config.IsAutoFillEnabled(libraryId.Value))
+                {
+                    continue;
+                }
+
+                // 实时入库拿到的只有 Id，检索方式要按它所属影视库现查。
+                queue.Add((item, _libraryContext.ModeForItem(item)));
             }
 
             if (queue.Count == 0)
@@ -241,13 +270,13 @@ public sealed class SubtitleJob
 
             int written = 0, kept = 0, empty = 0, failed = 0;
 
-            foreach (var item in queue)
+            foreach (var (item, searchMode) in queue)
             {
                 cancellationToken.ThrowIfCancellationRequested();
 
                 try
                 {
-                    var result = await ProcessAsync(item, config, repick: false, cancellationToken).ConfigureAwait(false);
+                    var result = await ProcessAsync(item, searchMode, config, repick: false, cancellationToken).ConfigureAwait(false);
                     switch (result)
                     {
                         case ProcessResult.Written:
@@ -287,20 +316,29 @@ public sealed class SubtitleJob
         }
     }
 
-    private IReadOnlyList<BaseItem> EnumerateItems(IReadOnlyList<Guid> libraries)
+    private IReadOnlyList<(BaseItem Item, SubtitleSearchMode Mode)> EnumerateItems(IReadOnlyList<Guid> libraries)
     {
         // One query per library: ParentId + Recursive is the only filter that reliably
         // matches .strm shortcuts here (TopParentIds resolves to nothing for them).
-        var items = new List<BaseItem>();
+        //
+        // 两种模式取的条目类型不同：
+        // - 番号库只处理电影（沿袭原行为，番号本身就是影片级标识）；
+        // - 片名库额外处理剧集，因为普通影视库里电视剧/动漫/综艺才是大头，
+        //   而剧集可以用「剧名 + SxxExx」查（实测命中率很好）。
+        var config = Plugin.Current;
+        var items = new List<(BaseItem Item, SubtitleSearchMode Mode)>();
         var seen = new HashSet<Guid>();
 
         foreach (var libraryId in libraries)
         {
+            var mode = config.ResolveSearchMode(libraryId);
             var query = new InternalItemsQuery
             {
                 ParentId = libraryId,
                 Recursive = true,
-                IncludeItemTypes = [BaseItemKind.Movie],
+                IncludeItemTypes = mode == SubtitleSearchMode.Title
+                    ? [BaseItemKind.Movie, BaseItemKind.Episode]
+                    : [BaseItemKind.Movie],
 
                 // Without this a movie that was added to a box set is hidden and looks missing.
                 CollapseBoxSetItems = false,
@@ -312,7 +350,7 @@ public sealed class SubtitleJob
             {
                 if (seen.Add(item.Id))
                 {
-                    items.Add(item);
+                    items.Add((item, mode));
                 }
             }
         }
@@ -320,7 +358,7 @@ public sealed class SubtitleJob
         return items;
     }
 
-    private bool ShouldProcess(BaseItem item, PluginConfiguration config, bool repick)
+    private bool ShouldProcess(BaseItem item, bool repick)
     {
         var mediaPath = item.Path;
         if (string.IsNullOrWhiteSpace(mediaPath) || !File.Exists(mediaPath))
@@ -337,7 +375,7 @@ public sealed class SubtitleJob
             return pluginSubtitles.Count > 0;
         }
 
-        // Embedded or synced-from-115 subtitles: the user already has something to read.
+        // Embedded or cloud-drive synced subtitles: the user already has something to read.
         if (userSubtitles.Count > 0)
         {
             return false;
@@ -352,26 +390,33 @@ public sealed class SubtitleJob
 
         if (pluginSubtitles.Count > 0)
         {
-            return config.AllowOverwritePluginSubtitle;
+            // 已有本插件写的字幕：补全不碰它，是否升级由「自动择优」决定。
+            return false;
         }
 
         return true;
     }
 
-    private async Task<ProcessResult> ProcessAsync(BaseItem item, PluginConfiguration config, bool repick, CancellationToken cancellationToken)
+    private async Task<ProcessResult> ProcessAsync(BaseItem item, SubtitleSearchMode mode, PluginConfiguration config, bool repick, CancellationToken cancellationToken)
     {
         var mediaPath = item.Path!;
-        var code = ReleaseCode.FromPath(mediaPath) ?? ReleaseCode.FromText(item.Name);
-        if (code is null)
+        var searchTarget = _libraryContext.FromItem(item, mode);
+        if (searchTarget is null)
         {
-            _log.Debug($"{Display(item)}：无法从文件名识别番号，跳过。");
+            _log.Debug($"{Display(item)}：{(mode == SubtitleSearchMode.Code ? "无法从文件名识别番号" : "取不到可用的片名")}，跳过。");
             return ProcessResult.Skipped;
         }
 
+        // 番号模式下 label 就是番号，片名模式下是「片名 + 年份 / SxxExx」；
+        // 日志和 provenance 都用它，读日志时一眼能看出这条是按哪种方式查的。
+        var code = searchTarget.Label;
+
         var existing = Sidecar.FindPluginSubtitles(mediaPath).FirstOrDefault();
-        if (existing is not null && !config.AllowOverwritePluginSubtitle && !repick)
+        if (existing is not null && !repick)
         {
-            _log.Debug($"{Display(item)} [{code}]：已有插件字幕且未允许覆盖，跳过。");
+            // ShouldProcess 已经挡掉这种情况，这里只是双保险：
+            // 补全任务永远不覆盖已有插件字幕，升级走「自动择优」。
+            _log.Debug($"{Display(item)} [{code}]：已有插件字幕，补全任务不覆盖（升级请用自动择优）。");
             return ProcessResult.Skipped;
         }
 
@@ -380,7 +425,7 @@ public sealed class SubtitleJob
         FindOutcome outcome;
         try
         {
-            outcome = await _finder.FindAsync(code, cancellationToken).ConfigureAwait(false);
+            outcome = await _finder.FindAsync(searchTarget, cancellationToken).ConfigureAwait(false);
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {

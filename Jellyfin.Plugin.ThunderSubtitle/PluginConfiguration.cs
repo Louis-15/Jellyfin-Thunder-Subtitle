@@ -16,6 +16,15 @@ public class PluginConfiguration : BasePluginConfiguration
     /// <summary>Gets or sets the ids of the libraries to scan.</summary>
     public string[] LibraryIds { get; set; } = Array.Empty<string>();
 
+    /// <summary>
+    /// 每个影视库各自的设置：检索方式（番号 / 片名）、是否自动补全、是否自动择优。
+    ///
+    /// 与 <see cref="LibraryIds"/> 分开存，是为了兼容升级前的配置：
+    /// 老配置里只有 LibraryIds，没有对应条目的库按「番号 + 自动补全 + 自动择优」处理，
+    /// 行为与升级前完全一致。
+    /// </summary>
+    public LibrarySetting[] LibrarySettings { get; set; } = Array.Empty<LibrarySetting>();
+
     /// <summary>Gets or sets how many movies a single run may process.</summary>
     public int MaxItemsPerRun { get; set; } = 5;
 
@@ -35,9 +44,9 @@ public class PluginConfiguration : BasePluginConfiguration
     public int ItemBudgetSeconds { get; set; } = 90;
 
     /// <summary>
-    /// Gets or sets a value indicating whether the fill task may replace a
-    /// <c>&lt;name&gt;.chi.*</c> subtitle it (or the old python script) wrote earlier.
-    /// Files synced from 115 (<c>&lt;name&gt;.srt</c>) are never touched.
+    /// 已废弃：旧版用它让「自动补全」也重新比较已有 <c>.chi.*</c>。
+    /// 现在由每个影视库的「自动择优」开关 + 「迅雷字幕 · 自动择优」任务承担，
+    /// 保留字段只为让旧配置文件里的同名节点能被正常解析（不保留也不影响解析，但会制造噪音）。
     /// </summary>
     public bool AllowOverwritePluginSubtitle { get; set; }
 
@@ -169,6 +178,80 @@ public class PluginConfiguration : BasePluginConfiguration
             .ToArray();
     }
 
+    /// <summary>检索方式：按番号。</summary>
+    public const string SearchModeCode = "Code";
+
+    /// <summary>检索方式：按片名。</summary>
+    public const string SearchModeTitle = "Title";
+
+    /// <summary>判断某个影视库是否在目标列表里。</summary>
+    /// <param name="libraryId">The library id.</param>
+    /// <returns><c>true</c> when the library is selected.</returns>
+    public bool IsLibraryConfigured(Guid libraryId)
+    {
+        return ResolveLibraryIds().Contains(libraryId);
+    }
+
+    /// <summary>
+    /// 取某个影视库配置的检索方式。
+    /// 没有配置条目时返回 <see cref="Core.SubtitleSearchMode.Code"/>：
+    /// 升级前建的配置没有这一项，必须保持原来的番号搜索行为。
+    /// </summary>
+    /// <param name="libraryId">The library id.</param>
+    /// <returns>The configured mode.</returns>
+    public Core.SubtitleSearchMode ResolveSearchMode(Guid libraryId)
+    {
+        var entry = FindSetting(libraryId);
+        if (entry is null)
+        {
+            return Core.SubtitleSearchMode.Code;
+        }
+
+        return string.Equals(entry.Mode, SearchModeTitle, StringComparison.OrdinalIgnoreCase)
+            ? Core.SubtitleSearchMode.Title
+            : Core.SubtitleSearchMode.Code;
+    }
+
+    /// <summary>
+    /// 该影视库是否参与「自动补全」定时任务 / 实时补字幕。
+    /// 默认开启：升级前的配置没有这一项，必须保持原来的行为。
+    /// </summary>
+    /// <param name="libraryId">The library id.</param>
+    /// <returns><c>true</c> when automatic filling is enabled.</returns>
+    public bool IsAutoFillEnabled(Guid libraryId)
+    {
+        return FindSetting(libraryId)?.AutoFill ?? true;
+    }
+
+    /// <summary>
+    /// 该影视库是否参与「自动择优」定时任务。
+    /// 默认开启；自动补全关掉的库不会参与择优（UI 上择优只在自动补全为「是」时才出现）。
+    /// </summary>
+    /// <param name="libraryId">The library id.</param>
+    /// <returns><c>true</c> when automatic re-picking is enabled.</returns>
+    public bool IsAutoRepickEnabled(Guid libraryId)
+    {
+        return IsAutoFillEnabled(libraryId) && (FindSetting(libraryId)?.AutoRepick ?? true);
+    }
+
+    private LibrarySetting? FindSetting(Guid libraryId)
+    {
+        if (LibrarySettings is null)
+        {
+            return null;
+        }
+
+        foreach (var entry in LibrarySettings)
+        {
+            if (entry is not null && Guid.TryParse(entry.LibraryId, out var id) && id == libraryId)
+            {
+                return entry;
+            }
+        }
+
+        return null;
+    }
+
     /// <summary>Clamps values that a hand-edited config file could have broken.</summary>
     public void Normalize()
     {
@@ -187,6 +270,22 @@ public class PluginConfiguration : BasePluginConfiguration
         DownloadConcurrency = Math.Clamp(DownloadConcurrency, 1, 8);
         ItemBudgetSeconds = Math.Clamp(ItemBudgetSeconds, 20, 600);
         LibraryIds ??= Array.Empty<string>();
+
+        // 只保留合法条目，并把 Mode 归一成两个已知值：
+        // 配置文件可能被手改过，也可能来自还没写这一项的老版本。
+        // AutoFill / AutoRepick 是布尔值，缺省即为 true，正好等于升级前的行为。
+        LibrarySettings = (LibrarySettings ?? Array.Empty<LibrarySetting>())
+            .Where(entry => entry is not null && Guid.TryParse(entry.LibraryId, out _))
+            .Select(entry => new LibrarySetting
+            {
+                LibraryId = entry.LibraryId,
+                Mode = string.Equals(entry.Mode, SearchModeTitle, StringComparison.OrdinalIgnoreCase)
+                    ? SearchModeTitle
+                    : SearchModeCode,
+                AutoFill = entry.AutoFill,
+                AutoRepick = entry.AutoRepick
+            })
+            .ToArray();
         LogLevel ??= "Information";
         PreferredLanguage ??= "Simplified";
 
@@ -206,4 +305,24 @@ public class PluginConfiguration : BasePluginConfiguration
         AiMaxCharsPerCandidate = Math.Clamp(AiMaxCharsPerCandidate, 500, 20_000);
         AiTimeoutSeconds = Math.Clamp(AiTimeoutSeconds, 10, 300);
     }
+}
+
+/// <summary>
+/// 一个影视库的设置：检索方式 + 是否自动补全 + 是否自动择优。
+/// 用「库 Id + 几个扁平字段」的结构而不是字典：
+/// Jellyfin 用 XmlSerializer 存插件配置，Guid 作键的字典在那里不可靠。
+/// </summary>
+public class LibrarySetting
+{
+    /// <summary>Gets or sets the library id (a GUID written as a string).</summary>
+    public string LibraryId { get; set; } = string.Empty;
+
+    /// <summary>Gets or sets the mode: <c>Code</c> or <c>Title</c>.</summary>
+    public string Mode { get; set; } = PluginConfiguration.SearchModeCode;
+
+    /// <summary>Gets or sets a value indicating whether the scheduled tasks may download subtitles for this library.</summary>
+    public bool AutoFill { get; set; } = true;
+
+    /// <summary>Gets or sets a value indicating whether the "自动择优" task may replace existing subtitles in this library.</summary>
+    public bool AutoRepick { get; set; } = true;
 }

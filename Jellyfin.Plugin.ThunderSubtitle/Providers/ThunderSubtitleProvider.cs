@@ -7,6 +7,7 @@ using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 using Jellyfin.Plugin.ThunderSubtitle.Core;
+using MediaBrowser.Controller.Library;
 using MediaBrowser.Controller.Providers;
 using MediaBrowser.Controller.Subtitles;
 using MediaBrowser.Model.Providers;
@@ -28,19 +29,23 @@ public sealed class ThunderSubtitleProvider : ISubtitleProvider
 
     private readonly ISubtitleFinder _finder;
     private readonly ThunderClient _thunder;
+    private readonly ILibraryContext _libraryContext;
     private readonly PluginLog _log;
 
     /// <summary>Initializes a new instance of the <see cref="ThunderSubtitleProvider"/> class.</summary>
     /// <param name="finder">The shared search pipeline.</param>
     /// <param name="thunder">Used to fetch the chosen candidate again.</param>
+    /// <param name="libraryContext">Tells which library the item belongs to, so the configured search mode applies.</param>
     /// <param name="logger">Logger.</param>
     public ThunderSubtitleProvider(
         ISubtitleFinder finder,
         ThunderClient thunder,
+        ILibraryContext libraryContext,
         Microsoft.Extensions.Logging.ILogger<ThunderSubtitleProvider> logger)
     {
         _finder = finder;
         _thunder = thunder;
+        _libraryContext = libraryContext;
         _log = new PluginLog(logger);
     }
 
@@ -66,17 +71,22 @@ public sealed class ThunderSubtitleProvider : ISubtitleProvider
             return Array.Empty<RemoteSubtitleInfo>();
         }
 
-        var code = ReleaseCode.FromPath(request.MediaPath) ?? ReleaseCode.FromText(request.Name);
-        if (code is null)
+        // 用哪个模式取决于条目所在影视库的配置：番号库按番号查，普通影视库按片名查。
+        var mode = _libraryContext.ModeForPath(request.MediaPath);
+        var target = _libraryContext.FromRequest(request, mode);
+        if (target is null)
         {
-            _log.Info($"手动搜索：无法从「{request.Name ?? request.MediaPath}」识别番号。");
+            _log.Info($"手动搜索：无法从「{request.Name ?? request.MediaPath}」识别"
+                      + (mode == SubtitleSearchMode.Code ? "番号" : "片名") + "。");
             return Array.Empty<RemoteSubtitleInfo>();
         }
+
+        _log.Info($"手动搜索：影视库检索方式 {(mode == SubtitleSearchMode.Code ? "番号" : "片名")}，查询「{target.Label}」。");
 
         FindOutcome outcome;
         try
         {
-            outcome = await _finder.FindAsync(code, cancellationToken).ConfigureAwait(false);
+            outcome = await _finder.FindAsync(target, cancellationToken).ConfigureAwait(false);
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
@@ -84,15 +94,15 @@ public sealed class ThunderSubtitleProvider : ISubtitleProvider
         }
         catch (Exception ex)
         {
-            _log.Warn($"手动搜索 [{code}] 失败：{ex.Message}");
+            _log.Warn($"手动搜索 [{target.Label}] 失败：{ex.Message}");
             return Array.Empty<RemoteSubtitleInfo>();
         }
 
-        _log.Info($"手动搜索 [{code}]：候选 {outcome.Candidates.Count} 条，中文 {outcome.Ranked.Count} 条。");
+        _log.Info($"手动搜索 [{target.Label}]：候选 {outcome.Candidates.Count} 条，中文 {outcome.Ranked.Count} 条。");
 
         if (outcome.Ranked.Count == 0)
         {
-            return [Notice(code, outcome)];
+            return [Notice(target.Label, outcome)];
         }
 
         return outcome.Ranked
@@ -235,10 +245,10 @@ public sealed class ThunderSubtitleProvider : ISubtitleProvider
     /// as "no subtitles found", which hides the difference between "the API was empty" and
     /// "the release genuinely has none", and the user cannot tell it should be retried.
     /// </summary>
-    /// <param name="code">The release code that was searched.</param>
+    /// <param name="label">The code or title that was searched.</param>
     /// <param name="outcome">What the pipeline produced.</param>
     /// <returns>The notice row. Its id cannot be downloaded.</returns>
-    private static RemoteSubtitleInfo Notice(string code, FindOutcome outcome)
+    private static RemoteSubtitleInfo Notice(string label, FindOutcome outcome)
     {
         var reason = outcome.Candidates.Count == 0
             ? $"上游接口连续 {ThunderClient.SearchAttempts} 次都返回空数据"
@@ -252,7 +262,7 @@ public sealed class ThunderSubtitleProvider : ISubtitleProvider
         {
             Id = SubtitleId.EncodePlaceholder(reason),
             ProviderName = DisplayName,
-            Name = $"（{code}）{reason}",
+            Name = $"（{label}）{reason}",
             Format = "srt",
             Comment = detail,
             ThreeLetterISOLanguageName = SavedLanguage,

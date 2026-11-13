@@ -29,7 +29,7 @@ public sealed class ThunderFillTask : IScheduledTask
 
     /// <inheritdoc />
     public string Description =>
-        "扫描目标影视库中完全没有字幕的影片，按番号从迅雷字幕搜索并下载最合适的字幕，写成 <片名>.chi.srt/.ass。";
+        "扫描开启了「自动补全」的影视库，对完全没有字幕的条目按各库配置的检索方式（番号 / 片名）搜索并下载最合适的字幕，写成 <片名>.chi.srt/.ass。已有字幕的条目不会覆盖，需要升级请用「迅雷字幕 · 自动择优」。";
 
     /// <inheritdoc />
     public string Category => "Library";

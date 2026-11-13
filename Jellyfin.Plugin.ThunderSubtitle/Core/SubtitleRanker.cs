@@ -208,6 +208,51 @@ public static class SubtitleRanker
     }
 
     /// <summary>
+    /// 片名模式的排序：先按「片名证据」分档，再沿用番号模式的同一条质量链。
+    ///
+    /// 与番号模式的区别：番号是硬标识，对不上就可以直接丢掉；
+    /// 片名没有硬标识，中文片名查出来常常是英文命名的候选（流浪地球 →
+    /// The.Wandering.Earth），所以证据只用来自动收窄范围：
+    /// 有片名/季集匹配就只留这一档，只有年份匹配就留年份匹配的，
+    /// 两者都没有时全部保留（按质量排），否则中文片名的库几乎一条都选不出来。
+    /// </summary>
+    /// <param name="candidates">Downloaded candidates.</param>
+    /// <param name="target">The title search target.</param>
+    /// <param name="preferred">The Chinese form to prefer when both are present.</param>
+    /// <returns>The ranked, de-duplicated candidates.</returns>
+    public static IReadOnlyList<SubtitlePick> RankForTitle(
+        IEnumerable<SubtitlePick> candidates,
+        SearchTarget target,
+        SubtitleLanguage preferred = SubtitleLanguage.SimplifiedChinese)
+    {
+        var seen = new HashSet<string>(StringComparer.Ordinal);
+        var scored = candidates
+            .Where(candidate => seen.Add(candidate.Hash))
+            .Select(candidate => (Pick: candidate, Level: TitleMatch.Level(candidate.CandidateName, target)))
+            .ToList();
+
+        if (scored.Count == 0)
+        {
+            return Array.Empty<SubtitlePick>();
+        }
+
+        var best = scored.Max(entry => entry.Level);
+        var kept = best == TitleMatchLevel.None
+            ? scored
+            : scored.Where(entry => entry.Level == best).ToList();
+
+        return kept
+            .OrderByDescending(entry => (int)entry.Level)
+            .ThenBy(entry => entry.Pick.AiMarkers)
+            .ThenBy(entry => entry.Pick.Language == preferred ? 0 : 1)
+            .ThenByDescending(entry => entry.Pick.ContentChars)
+            .ThenByDescending(entry => entry.Pick.CueCount)
+            .ThenBy(entry => entry.Pick.CandidateName, StringComparer.OrdinalIgnoreCase)
+            .Select(entry => entry.Pick)
+            .ToArray();
+    }
+
+    /// <summary>
     /// Reorders a shortlist using an AI verdict. Machine-translated candidates sink to the
     /// bottom, then the higher score wins, then dialogue volume breaks ties.
     /// </summary>

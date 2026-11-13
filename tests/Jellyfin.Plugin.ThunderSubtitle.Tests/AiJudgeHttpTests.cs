@@ -33,7 +33,7 @@ public class AiJudgeHttpTests
         var settings = new AiSettings(stub.BaseUrl + "/v1", "secret-key", "stub-model", 12, 1000, 20, "session-abc", UseSessionHeader: true);
 
         var verdicts = await judge.JudgeAsync(
-            "FSDSS-272",
+            SearchTarget.ForCode("FSDSS-272"),
             [Pick("a.srt", SrtA), Pick("b.srt", SrtB)],
             settings,
             SubtitleLanguage.SimplifiedChinese,
@@ -60,7 +60,7 @@ public class AiJudgeHttpTests
         var settings = new AiSettings(stub.BaseUrl + "/v1", "k", "m", 8, 1000, 20, "session-abc", UseSessionHeader: false);
 
         await judge.JudgeAsync(
-            "X-1",
+            SearchTarget.ForCode("X-1"),
             [Pick("a.srt", SrtA), Pick("b.srt", SrtB)],
             settings,
             SubtitleLanguage.SimplifiedChinese,
@@ -76,7 +76,7 @@ public class AiJudgeHttpTests
         var judge = new AiSubtitleJudge(NullLogger<AiSubtitleJudge>.Instance);
 
         var verdicts = await judge.JudgeAsync(
-            "X-1",
+            SearchTarget.ForCode("X-1"),
             [Pick("a.srt", SrtA), Pick("b.srt", SrtB)],
             new AiSettings(stub.BaseUrl + "/v1", "wrong", "m", 8, 1000, 10),
             SubtitleLanguage.SimplifiedChinese,
@@ -92,7 +92,7 @@ public class AiJudgeHttpTests
         var judge = new AiSubtitleJudge(NullLogger<AiSubtitleJudge>.Instance);
 
         var verdicts = await judge.JudgeAsync(
-            "X-1",
+            SearchTarget.ForCode("X-1"),
             [Pick("a.srt", SrtA), Pick("b.srt", SrtB)],
             new AiSettings(stub.BaseUrl + "/v1", string.Empty, "m", 8, 1000, 10),
             SubtitleLanguage.SimplifiedChinese,
@@ -108,7 +108,7 @@ public class AiJudgeHttpTests
         var judge = new AiSubtitleJudge(NullLogger<AiSubtitleJudge>.Instance);
 
         var verdicts = await judge.JudgeAsync(
-            "X-1",
+            SearchTarget.ForCode("X-1"),
             [Pick("a.srt", SrtA)],
             new AiSettings(stub.BaseUrl + "/v1", "k", "m", 8, 1000, 10),
             SubtitleLanguage.SimplifiedChinese,

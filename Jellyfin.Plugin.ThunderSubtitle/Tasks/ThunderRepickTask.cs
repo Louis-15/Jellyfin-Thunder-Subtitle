@@ -22,14 +22,14 @@ public sealed class ThunderRepickTask : IScheduledTask
     }
 
     /// <inheritdoc />
-    public string Name => "迅雷字幕 · 重新择优";
+    public string Name => "迅雷字幕 · 自动择优";
 
     /// <inheritdoc />
     public string Key => "ThunderSubtitleRepick";
 
     /// <inheritdoc />
     public string Description =>
-        "对已经由本插件写入的 .chi 字幕重新搜索，遇到更完整（或非机翻）的候选就替换。不会碰 115 同步下来的字幕。";
+        "对开启了「自动择优」的影视库里、由本插件写入的 .chi 字幕重新搜索，遇到更完整（或非机翻）的候选就替换。不会碰网盘同步下来的字幕。";
 
     /// <inheritdoc />
     public string Category => "Library";

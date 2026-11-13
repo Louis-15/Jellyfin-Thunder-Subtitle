@@ -22,6 +22,9 @@ public sealed class PluginServiceRegistrator : IPluginServiceRegistrator
         services.AddSingleton<ProvenanceStore>();
         services.AddSingleton<AiSubtitleJudge>();
         services.AddSingleton<ISubtitleFinder, SubtitleFinder>();
+
+        // 影视库归属 → 检索方式（番号 / 片名）：定时任务、实时入库、手动搜索共用同一个实现。
+        services.AddSingleton<ILibraryContext, LibraryContext>();
         services.AddSingleton<SubtitleJob>();
 
         // Preview button in Jellyfin's own subtitle dialog: the text is parked in memory (never

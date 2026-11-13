@@ -33,7 +33,7 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
 
     /// <inheritdoc />
     public override string Description =>
-        "为按番号命名的影片从迅雷字幕 API 自动下载外挂字幕（按番号搜索，过滤机翻，择优写入 .chi.srt/.ass）。";
+        "从迅雷字幕 API 自动下载外挂字幕：每个影视库可分别选择按番号或按片名检索，过滤机翻，择优写入 .chi.srt/.ass。";
 
     /// <inheritdoc />
     public override Guid Id => PluginId;

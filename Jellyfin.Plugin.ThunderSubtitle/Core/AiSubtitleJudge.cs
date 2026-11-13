@@ -84,14 +84,14 @@ public sealed class AiSubtitleJudge
     }
 
     /// <summary>Judges a shortlist of candidates.</summary>
-    /// <param name="code">The release code, only used to give the model context.</param>
+    /// <param name="target">The search target; its label and mode give the model context.</param>
     /// <param name="shortlist">Candidates to compare, best-by-volume first.</param>
     /// <param name="settings">Endpoint settings.</param>
     /// <param name="preferred">The Chinese form the user prefers.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>The verdicts keyed by candidate id, or <c>null</c> when the call failed.</returns>
     public async Task<IReadOnlyDictionary<int, AiVerdict>?> JudgeAsync(
-        string code,
+        SearchTarget target,
         IReadOnlyList<SubtitlePick> shortlist,
         AiSettings settings,
         SubtitleLanguage preferred,
@@ -114,7 +114,7 @@ public sealed class AiSubtitleJudge
             return null;
         }
 
-        var request = BuildRequest(code, shortlist, settings, preferred);
+        var request = BuildRequest(target, shortlist, settings, preferred);
         var body = JsonSerializer.Serialize(request, JsonOptions);
 
         using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
@@ -184,19 +184,19 @@ public sealed class AiSubtitleJudge
     }
 
     /// <summary>Builds the chat completion body. Exposed for tests.</summary>
-    /// <param name="code">The release code.</param>
+    /// <param name="target">The search target.</param>
     /// <param name="shortlist">Candidates to compare.</param>
     /// <param name="settings">Endpoint settings.</param>
     /// <param name="preferred">The Chinese form the user prefers.</param>
     /// <returns>The request payload.</returns>
     public static ChatRequest BuildRequest(
-        string code,
+        SearchTarget target,
         IReadOnlyList<SubtitlePick> shortlist,
         AiSettings settings,
         SubtitleLanguage preferred = SubtitleLanguage.SimplifiedChinese)
     {
         var prompt = new StringBuilder();
-        prompt.Append("番号：").Append(code).Append('\n');
+        prompt.Append(target.Mode == SubtitleSearchMode.Code ? "番号：" : "片名：").Append(target.Label).Append('\n');
         prompt.Append("用户偏好：").Append(preferred == SubtitleLanguage.TraditionalChinese ? "繁体中文" : "简体中文")
             .Append("（同分时优先这一种）\n");
         prompt.Append("下面是同一部影片的 ").Append(shortlist.Count).Append(" 份中文字幕候选，每份只抽取了部分台词，已去掉时间轴，按原片顺序排列。\n");

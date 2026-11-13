@@ -6,6 +6,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using Jellyfin.Plugin.ThunderSubtitle.Core;
 using Jellyfin.Plugin.ThunderSubtitle.Providers;
+using MediaBrowser.Controller.Entities;
 using MediaBrowser.Controller.Providers;
 using MediaBrowser.Controller.Subtitles;
 using Microsoft.Extensions.Logging.Abstractions;
@@ -35,9 +36,12 @@ public class ThunderSubtitleProviderTests
 
         public int Calls { get; private set; }
 
-        public Task<FindOutcome> FindAsync(string code, CancellationToken cancellationToken)
+        public SearchTarget? LastTarget { get; private set; }
+
+        public Task<FindOutcome> FindAsync(SearchTarget target, CancellationToken cancellationToken)
         {
             Calls++;
+            LastTarget = target;
             var ranked = Picks.ToArray();
             var candidates = ranked.Length > 0
                 ? ranked.Select(p => new ThunderCandidate(p.Uri!, p.CandidateName, "srt")).ToArray()
@@ -56,9 +60,34 @@ public class ThunderSubtitleProviderTests
         }
     }
 
-    private static ThunderSubtitleProvider Create(FakeFinder finder)
+    /// <summary>
+    /// 测试里没有真实影视库：检索方式固定为番号（与升级前的默认行为一致），
+    /// 目标的构造直接复用真实实现，因为它不依赖 ILibraryManager。
+    /// </summary>
+    private sealed class FakeLibraryContext : ILibraryContext
     {
-        return new ThunderSubtitleProvider(finder, new ThunderClient(), NullLogger<ThunderSubtitleProvider>.Instance);
+        private readonly LibraryContext _factory = new(null!);
+
+        public SubtitleSearchMode Mode { get; set; } = SubtitleSearchMode.Code;
+
+        public bool IsTitleLibrary { get; set; }
+
+        public SubtitleSearchMode ModeForPath(string? mediaPath) => IsTitleLibrary ? SubtitleSearchMode.Title : Mode;
+
+        public SubtitleSearchMode ModeForItem(BaseItem? item) => ModeForPath(item?.Path);
+
+        public Guid? LibraryIdForItem(BaseItem? item) => null;
+
+        public SearchTarget? FromItem(BaseItem item, SubtitleSearchMode mode) => _factory.FromItem(item, mode);
+
+        public SearchTarget? FromRequest(SubtitleSearchRequest request, SubtitleSearchMode mode) =>
+            _factory.FromRequest(request, mode);
+    }
+
+    private static ThunderSubtitleProvider Create(FakeFinder finder, bool titleLibrary = false)
+    {
+        var context = new FakeLibraryContext { IsTitleLibrary = titleLibrary };
+        return new ThunderSubtitleProvider(finder, new ThunderClient(), context, NullLogger<ThunderSubtitleProvider>.Instance);
     }
 
     private static SubtitleSearchRequest Request(string language, string? mediaPath = "/media/strm/ABF-363-U.strm")
@@ -150,6 +179,45 @@ public class ThunderSubtitleProviderTests
 
         Assert.Empty(await Create(finder).Search(request, CancellationToken.None));
         Assert.Equal(0, finder.Calls);
+    }
+
+    [Fact]
+    public async Task TitleLibrarySearchesByMovieTitle()
+    {
+        var finder = new FakeFinder();
+        finder.Picks.Add(Pick("Inception.2010.srt"));
+
+        var request = Request("Chinese (Simplified)", "/media/movies/Inception/Inception.2010.mkv");
+        request.Name = "Inception";
+        request.ProductionYear = 2010;
+
+        var results = (await Create(finder, titleLibrary: true).Search(request, CancellationToken.None)).ToArray();
+
+        Assert.Single(results);
+        Assert.NotNull(finder.LastTarget);
+        Assert.Equal(SubtitleSearchMode.Title, finder.LastTarget!.Mode);
+        Assert.Equal("Inception 2010", finder.LastTarget.Query);
+    }
+
+    [Fact]
+    public async Task TitleLibrarySearchesEpisodesBySeriesAndNumber()
+    {
+        var finder = new FakeFinder();
+        finder.Picks.Add(Pick("Breaking.Bad.S01E02.srt"));
+
+        var request = Request("Chinese (Simplified)", "/media/tv/Breaking Bad/S01/E02.mkv");
+        request.ContentType = VideoContentType.Episode;
+        request.Name = "Cat's in the Bag...";
+        request.SeriesName = "Breaking Bad";
+        request.ParentIndexNumber = 1;
+        request.IndexNumber = 2;
+
+        await Create(finder, titleLibrary: true).Search(request, CancellationToken.None);
+
+        Assert.NotNull(finder.LastTarget);
+        Assert.Equal("Breaking Bad S01E02", finder.LastTarget!.Query);
+        Assert.Equal(1, finder.LastTarget.Season);
+        Assert.Equal(2, finder.LastTarget.Episode);
     }
 
     [Fact]

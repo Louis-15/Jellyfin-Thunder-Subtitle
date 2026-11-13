@@ -47,6 +47,7 @@
         #ThunderSubtitleConfigPage .ts-libraries {
             max-height: 18rem;
             overflow-y: auto;
+            overflow-x: auto;
             padding: 0.35rem 0.75rem;
             border: 1px solid rgba(127, 127, 127, 0.25);
             border-radius: 0.3em;
@@ -54,21 +55,82 @@
 
         /* 影视库每行沿用官方 .checkboxContainer + .emby-checkbox-label 结构。
            切勿再给 label 写内联 padding：那会覆盖 .emby-checkbox-label 自带的
-           padding-left: 2.4em，让绝对定位的复选框方框压住库名前两个字。 */
+           padding-left: 2.4em，让绝对定位的复选框方框压住库名前两个字。
+
+           用 grid 固定四列：库名占第一列（可压缩），后面三列宽度固定。
+           这样无论哪个库、无论「自动择优」是否显示，三个下拉框的位置都不变；
+           早先的 flex 布局会让库名长度不同导致下拉框左右跳动。 */
         #ThunderSubtitleConfigPage .ts-libraries .ts-lib-option {
             margin: 0;
+            display: grid;
+            grid-template-columns: minmax(0, 1fr) 8.4rem 8.4rem 8.4rem;
+            align-items: center;
+            column-gap: 0.35rem;
         }
 
         #ThunderSubtitleConfigPage .ts-libraries .ts-lib-option .emby-checkbox-label {
             display: flex;
+            align-items: center;
             height: auto;
             min-height: 2.2em;
+            min-width: 0;
+        }
+
+        /* 库名过长时省略，避免把固定列挤变形。 */
+        #ThunderSubtitleConfigPage .ts-libraries .ts-lib-option .emby-checkbox-label span {
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+
+        /* display:contents 让三个 select 直接落进 grid 的第 2~4 列。 */
+        #ThunderSubtitleConfigPage .ts-lib-settings {
+            display: contents;
+        }
+
+        #ThunderSubtitleConfigPage .ts-lib-select {
+            /* color-scheme 让浏览器把原生下拉列表按深色渲染；
+               option 再显式给底色和前色，否则深色主题下是白字白底看不见。 */
+            color-scheme: dark;
+            background: rgba(127, 127, 127, 0.16);
+            color: inherit;
+            border: 1px solid rgba(127, 127, 127, 0.35);
+            border-radius: 0.25em;
+            padding: 0.2em 0.3em;
+            font-size: 0.88em;
+            width: 100%;
+            min-width: 0;
+        }
+
+        #ThunderSubtitleConfigPage .ts-lib-select option {
+            background-color: #1b1b1b;
+            color: #f2f2f2;
+        }
+
+        /* 「自动补全＝否」时「自动择优」用 visibility 隐藏，格子仍占位，
+           保证另外两个下拉框不会右移。 */
+        #ThunderSubtitleConfigPage .ts-lib-select.ts-lib-hidden {
+            visibility: hidden;
         }
 
         #ThunderSubtitleConfigPage .ts-hint {
             color: var(--theme-secondary-color, #888);
             font-size: 0.92em;
             margin-top: 0.3rem;
+        }
+
+        #ThunderSubtitleConfigPage .ts-hint p {
+            margin: 0 0 0.35rem;
+        }
+
+        #ThunderSubtitleConfigPage .ts-hint ul {
+            margin: 0;
+            padding-left: 1.1rem;
+        }
+
+        #ThunderSubtitleConfigPage .ts-hint li {
+            margin: 0.2rem 0;
+            line-height: 1.45;
         }
 
         #ThunderSubtitleConfigPage .ts-actions {
@@ -121,10 +183,8 @@
                     <legend class="ts-group-title">基本设置</legend>
                     <div class="ts-group-body">
                         <p class="fieldDescription">
-                            按番号从迅雷字幕 API 下载外挂字幕，写入视频同目录的
+                            从迅雷字幕 API 下载外挂字幕，写入视频同目录的
                             <code>&lt;片名&gt;.chi.srt</code> 或 <code>&lt;片名&gt;.chi.ass</code>。
-                            只处理所选影视库里<strong>完全没有字幕</strong>的影片，115 同步下来的
-                            <code>&lt;片名&gt;.srt</code> 永远不会被覆盖。
                         </p>
                         <p class="fieldDescription">
                             在「右键 → 修改字幕 → 搜索字幕」里，每条结果后面会有
@@ -152,7 +212,27 @@
                             </button>
                         </div>
                         <div id="LibraryList" class="ts-libraries">正在加载影视库…</div>
-                        <div class="ts-hint">只勾选 影视库；旧脚本负责的库不要同时勾选，否则会重复下载。</div>
+                        <div class="ts-hint">
+                            <p>勾选需要本插件处理的影视库，再为每个库分别设置下面三项（未勾选的库只显示设置，不会被处理）：</p>
+                            <ul>
+                                <li>
+                                    <strong>检索方式</strong>：番号库（如 <code>ABF-363</code>）选「番号搜索」；
+                                    普通影视库选「片名搜索」，按片名 + 年份 / 季集查。
+                                </li>
+                                <li>
+                                    <strong>自动补全</strong>：只处理<strong>完全没有字幕</strong>的影片。
+                                    已有网盘同步的 <code>&lt;片名&gt;.srt</code>、内嵌字幕或本插件写的
+                                    <code>.chi.*</code> 都会跳过，永远不会被覆盖。
+                                    选「否」时该库只有手动「搜索字幕」才会查。
+                                </li>
+                                <li>
+                                    <strong>自动择优</strong>：只处理<strong>已有本插件写的 <code>.chi.*</code></strong>
+                                    的影片，重新搜索一遍，遇到更完整或非机翻的候选才替换；
+                                    网盘同步的 <code>.srt</code> 和内嵌字幕同样不会被碰。
+                                    自动补全选「否」时该项隐藏。
+                                </li>
+                            </ul>
+                        </div>
                     </div>
                 </fieldset>
 
@@ -206,17 +286,6 @@
                                     <option value="Debug">调试（逐条候选）</option>
                                 </select>
                                 <div class="fieldDescription">日志写入 Jellyfin 服务器日志，时间戳为北京时间。</div>
-                            </div>
-                        </div>
-
-                        <div class="checkboxContainer checkboxContainer-withDescription">
-                            <label class="emby-checkbox-label">
-                                <input id="AllowOverwritePluginSubtitle" type="checkbox" is="emby-checkbox" />
-                                <span>允许覆盖已有的插件字幕</span>
-                            </label>
-                            <div class="fieldDescription checkboxFieldDescription">
-                                勾选后，已经存在 <code>.chi.*</code> 字幕的影片也会重新比较并升级。
-                                115 同步的字幕不受影响。
                             </div>
                         </div>
                     </div>
@@ -322,7 +391,7 @@
                             <span>立即补全</span>
                         </button>
                         <button is="emby-button" type="button" id="RunRepick" class="raised">
-                            <span>立即重新择优</span>
+                            <span>立即自动择优</span>
                         </button>
                     </div>
                     <div id="RunStatus" class="ts-status" style="display: none;"></div>
@@ -368,7 +437,7 @@
                 box.style.display = '';
             }
 
-            function renderLibraries(libraries, selected) {
+            function renderLibraries(libraries, selected, settings) {
                 var box = byId('LibraryList');
                 box.innerHTML = '';
 
@@ -377,8 +446,36 @@
                     return;
                 }
 
+                // 配置里的库 Id 与 Library/VirtualFolders 返回的大小写不一定一致，
+                // 统一转小写后比对。老配置没有 LibrarySettings，取默认值：
+                // 番号搜索 + 自动补全 + 自动择优，与升级前一致。
+                var selectedSet = {};
+                (selected || []).forEach(function (id) {
+                    selectedSet[normalizeId(id)] = true;
+                });
+
+                var settingById = {};
+                (settings || []).forEach(function (entry) {
+                    if (entry && entry.LibraryId) {
+                        settingById[normalizeId(entry.LibraryId)] = entry;
+                    }
+                });
+
                 libraries.forEach(function (library) {
                     var id = library.ItemId || library.Id;
+                    var key = normalizeId(id);
+                    var saved = settingById[key] || {};
+
+                    // 默认值：
+                    // - 已经配置过的库（在 LibraryIds 里但没有 LibrarySettings 条目）沿用旧行为
+                    //   「番号 + 自动补全 + 自动择优」，避免升级后界面显示与实际运行不一致；
+                    // - 新库默认「片名搜索 / 自动补全：否 / 自动择优：否」——
+                    //   大多数库的影片自带字幕，不需要自动下载。
+                    var isConfigured = selectedSet[key] === true;
+                    var hasSaved = settingById[key] !== undefined;
+                    var defaultMode = isConfigured ? 'Code' : 'Title';
+                    var defaultAutoFill = isConfigured;
+                    var defaultAutoRepick = isConfigured;
 
                     // 每一行用官方 .checkboxContainer 包一层：emby-checkbox 会把
                     // .checkboxOutline 绝对定位到 label 左边缘，靠 label 自带的
@@ -394,7 +491,7 @@
                     input.type = 'checkbox';
                     input.setAttribute('is', 'emby-checkbox');
                     input.value = id;
-                    input.checked = selected.indexOf(id) >= 0;
+                    input.checked = selectedSet[key] === true;
 
                     var span = document.createElement('span');
                     span.textContent = library.Name + (library.CollectionType ? '  (' + library.CollectionType + ')' : '');
@@ -402,24 +499,113 @@
                     label.appendChild(input);
                     label.appendChild(span);
                     row.appendChild(label);
+
+                    var tools = document.createElement('div');
+                    tools.className = 'ts-lib-settings';
+
+                    var mode = createLibSelect('ts-lib-mode', [
+                        ['Code', '番号搜索'],
+                        ['Title', '片名搜索']
+                    ], hasSaved ? (saved.Mode === 'Code' ? 'Code' : 'Title') : defaultMode);
+                    mode.title = '检索方式';
+
+                    var autoFill = createLibSelect('ts-lib-autofill', [
+                        ['Yes', '自动补全：是'],
+                        ['No', '自动补全：否']
+                    ], hasSaved ? (saved.AutoFill === true ? 'Yes' : 'No') : (defaultAutoFill ? 'Yes' : 'No'));
+                    autoFill.title = '自动补全：定时任务与实时入库是否自动为该库下载字幕';
+
+                    var autoRepick = createLibSelect('ts-lib-autorepick', [
+                        ['Yes', '自动择优：是'],
+                        ['No', '自动择优：否']
+                    ], hasSaved ? (saved.AutoRepick === true ? 'Yes' : 'No') : (defaultAutoRepick ? 'Yes' : 'No'));
+                    autoRepick.title = '自动择优：「自动择优」任务是否替换该库已有字幕';
+
+                    tools.appendChild(mode);
+                    tools.appendChild(autoFill);
+                    tools.appendChild(autoRepick);
+                    row.appendChild(tools);
                     box.appendChild(row);
+
+                    // 未勾选的库也要显示下拉框：用户一眼就能看到这个库当前选的是什么。
+                    // 「自动补全」选「否」时把「自动择优」隐藏，但用 visibility 保留格子，
+                    // 否则另外两个下拉框会右移，三个框的位置就不固定了。
+                    var syncRows = function () {
+                        autoRepick.classList.toggle('ts-lib-hidden', autoFill.value !== 'Yes');
+                    };
+
+                    autoFill.addEventListener('change', syncRows);
+                    syncRows();
                 });
             }
 
-            function loadLibraries() {
-                var selected = [];
-                page.querySelectorAll('#LibraryList input[type=checkbox]').forEach(function (input) {
-                    if (input.checked) {
-                        selected.push(input.value);
-                    }
+            function normalizeId(id) {
+                return String(id || '').toLowerCase();
+            }
+
+            function createLibSelect(className, options, value) {
+                var select = document.createElement('select');
+                select.className = 'ts-lib-select ' + className;
+
+                options.forEach(function (option) {
+                    var item = document.createElement('option');
+                    item.value = option[0];
+                    item.textContent = option[1];
+                    select.appendChild(item);
                 });
 
-                var pending = selected.length ? Promise.resolve(selected) : ApiClient.getPluginConfiguration(PluginId)
-                    .then(function (cfg) { return cfg.LibraryIds || []; });
+                select.value = value;
+                return select;
+            }
 
-                return pending.then(function (ids) {
+            /** 读出当前列表里每个库的勾选状态与三个下拉框的值。 */
+            function readLibraryRows() {
+                var rows = [];
+                page.querySelectorAll('#LibraryList .ts-lib-option').forEach(function (row) {
+                    var input = row.querySelector('input[type=checkbox]');
+                    if (!input) {
+                        return;
+                    }
+
+                    var mode = row.querySelector('.ts-lib-mode');
+                    var autoFill = row.querySelector('.ts-lib-autofill');
+                    var autoRepick = row.querySelector('.ts-lib-autorepick');
+
+                    rows.push({
+                        LibraryId: input.value,
+                        Checked: input.checked,
+                        Mode: mode ? mode.value : 'Code',
+                        AutoFill: autoFill ? autoFill.value === 'Yes' : true,
+                        AutoRepick: autoRepick ? autoRepick.value === 'Yes' : true
+                    });
+                });
+
+                return rows;
+            }
+
+            function loadLibraries() {
+                var rows = readLibraryRows();
+
+                var pending = rows.length
+                    ? Promise.resolve({
+                        ids: rows.filter(function (row) { return row.Checked; })
+                            .map(function (row) { return row.LibraryId; }),
+                        settings: rows.map(function (row) {
+                            return {
+                                LibraryId: row.LibraryId,
+                                Mode: row.Mode,
+                                AutoFill: row.AutoFill,
+                                AutoRepick: row.AutoRepick
+                            };
+                        })
+                    })
+                    : ApiClient.getPluginConfiguration(PluginId).then(function (cfg) {
+                        return { ids: cfg.LibraryIds || [], settings: cfg.LibrarySettings || [] };
+                    });
+
+                return pending.then(function (state) {
                     return ApiClient.getJSON(ApiClient.getUrl('Library/VirtualFolders')).then(function (libraries) {
-                        renderLibraries(libraries || [], ids || []);
+                        renderLibraries(libraries || [], state.ids || [], state.settings || []);
                     });
                 });
             }
@@ -427,7 +613,6 @@
             function loadConfig() {
                 return ApiClient.getPluginConfiguration(PluginId).then(function (cfg) {
                     byId('Enabled').checked = cfg.Enabled !== false;
-                    byId('AllowOverwritePluginSubtitle').checked = cfg.AllowOverwritePluginSubtitle === true;
                     byId('MaxItemsPerRun').value = cfg.MaxItemsPerRun || 5;
                     byId('MaxCandidates').value = cfg.MaxCandidates || 25;
                     byId('RequestIntervalMs').value = cfg.RequestIntervalMs != null ? cfg.RequestIntervalMs : 500;
@@ -445,19 +630,9 @@
                     syncProviderRows();
 
                     return ApiClient.getJSON(ApiClient.getUrl('Library/VirtualFolders')).then(function (libraries) {
-                        renderLibraries(libraries || [], cfg.LibraryIds || []);
+                        renderLibraries(libraries || [], cfg.LibraryIds || [], cfg.LibrarySettings || []);
                     });
                 });
-            }
-
-            function selectedLibraryIds() {
-                var ids = [];
-                page.querySelectorAll('#LibraryList input[type=checkbox]').forEach(function (input) {
-                    if (input.checked) {
-                        ids.push(input.value);
-                    }
-                });
-                return ids;
             }
 
             function runTask(key) {
@@ -491,8 +666,21 @@
                 Dashboard.showLoadingMsg();
                 return ApiClient.getPluginConfiguration(PluginId).then(function (cfg) {
                     cfg.Enabled = byId('Enabled').checked;
-                    cfg.AllowOverwritePluginSubtitle = byId('AllowOverwritePluginSubtitle').checked;
-                    cfg.LibraryIds = selectedLibraryIds();
+
+                    // 勾选状态决定「参与处理」的库；三个下拉框则对所有库保存，
+                    // 这样临时取消勾选再重新勾选时，之前选的检索方式 / 开关还在。
+                    var rows = readLibraryRows();
+                    cfg.LibraryIds = rows
+                        .filter(function (row) { return row.Checked; })
+                        .map(function (row) { return row.LibraryId; });
+                    cfg.LibrarySettings = rows.map(function (row) {
+                        return {
+                            LibraryId: row.LibraryId,
+                            Mode: row.Mode,
+                            AutoFill: row.AutoFill,
+                            AutoRepick: row.AutoRepick
+                        };
+                    });
 
                     var maxItems = parseInt(byId('MaxItemsPerRun').value, 10);
                     cfg.MaxItemsPerRun = isNaN(maxItems) || maxItems < 1 ? 5 : maxItems;

@@ -6,7 +6,7 @@ namespace Jellyfin.Plugin.ThunderSubtitle.Core;
 
 /// <summary>
 /// Path rules for sidecar subtitles. Two naming families live next to a media file:
-/// <c>&lt;name&gt;.srt</c> / <c>&lt;name&gt;.zh.srt</c> (synced from 115, never touched)
+/// <c>&lt;name&gt;.srt</c> / <c>&lt;name&gt;.zh.srt</c> (synced from a cloud drive, never touched)
 /// and <c>&lt;name&gt;.chi.srt</c> (written by this plugin or the old python script).
 /// </summary>
 public static class Sidecar
