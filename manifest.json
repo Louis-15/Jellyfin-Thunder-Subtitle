@@ -9,6 +9,14 @@
     "imageUrl": "https://raw.githubusercontent.com/Louis-15/Jellyfin-Thunder-Subtitle/main/logo.png",
     "versions": [
       {
+        "version": "1.10.0.0",
+        "changelog": "Release 1.10.0.0\n\n字幕挑选重构：不再按台词字数排序，改为按字幕自身的缺陷和体量偏离度挑候选，再交给 AI 横向比较。\n- 按影片类型（非中文影视 / 中文影视 / 日本AV）分化语言策略与评审提示词\n- 新增简英双语档位，三类影片各有自己的语言优先级\n- 送审前淘汰硬伤候选：含中文率过低、未译标注过多、大段空白、断句过粗\n- 每档送审份数默认 2 → 5，首选档凑不满时余量让给其他档位\n- 新增非中文影视跨档择优：低档位高出 8 分时改用该份译文\n- AI 提示词改为按时间轴对齐的连续片段，要求引用原句作为证据\n- 新增影片元数据卡（题材、年代、简介），让模型按影片语境评判用词\n- 新增附加提示词：搜索字幕时可输入额外要求，参与本次评分\n- 新增 AI 评分缓存、近似去重、来源台账扩展\n- 配置页重排：三栏合并为「字幕下载与筛选」，按处理时间线排列；新增「AI 接口」栏与「测试连接」\n- 新增「含内嵌字幕的视频也补外挂字幕」开关\n- AI 超时默认值 60 → 100 秒\n\nCo-authored-by: Copilot <223556219+Copilot@users.noreply.github.com>",
+        "targetAbi": "12.2.0.0",
+        "sourceUrl": "https://github.com/Louis-15/Jellyfin-Thunder-Subtitle/releases/download/v1.10.0.0/thunder-subtitle_1.10.0.0.zip",
+        "checksum": "109d089a3cdadc7aefa78eeff7d388f7",
+        "timestamp": "2026-11-13T19:50:13Z"
+      },
+      {
         "version": "1.9.2.2",
         "changelog": "Release 1.9.2.2\n\n修复插件详情页简介仍显示旧文案：改为「普通影视按片名搜索，按番号命名的影片按番号搜索」，并说明每个库可分别开关自动补全与自动择优",
         "targetAbi": "12.2.0.0",
