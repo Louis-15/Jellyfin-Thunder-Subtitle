@@ -9,6 +9,14 @@
     "imageUrl": "https://raw.githubusercontent.com/Louis-15/Jellyfin-Thunder-Subtitle/main/logo.png",
     "versions": [
       {
+        "version": "1.9.2.2",
+        "changelog": "Release 1.9.2.2\n\n修复插件详情页简介仍显示旧文案：改为「普通影视按片名搜索，按番号命名的影片按番号搜索」，并说明每个库可分别开关自动补全与自动择优",
+        "targetAbi": "12.2.0.0",
+        "sourceUrl": "https://github.com/Louis-15/Jellyfin-Thunder-Subtitle/releases/download/v1.9.2.2/thunder-subtitle_1.9.2.2.zip",
+        "checksum": "9c4857433bb0d432d1f7298a386b7ab3",
+        "timestamp": "2026-11-13T09:46:17Z"
+      },
+      {
         "version": "1.9.2.1",
         "changelog": "Release 1.9.2.1\n\n封面图改为 640x360 横版，重写插件简介：普通影视按片名搜索，按番号命名的影片按番号搜索",
         "targetAbi": "12.2.0.0",
