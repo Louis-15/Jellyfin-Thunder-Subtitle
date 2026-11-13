@@ -5,8 +5,8 @@
     "targetAbi":  "12.2.0.0",
     "framework":  "net10.0",
     "owner":  "Jellyfin-Thunder-Subtitle",
-    "overview":  "为按番号命名的影片从迅雷字幕 API 自动下载高质量外挂字幕。",
-    "description":  "Scheduled task that finds movies in the selected libraries that have no subtitles at all, extracts the release code from the file name (ABF-363-U.strm -\u003e ABF-363), queries the Xunlei subtitle API, downloads every candidate, drops machine-translated ones, picks the best remaining candidate by dialogue volume and writes it next to the .strm as \u003cname\u003e.chi.srt/.ass so Jellyfin picks it up as an external subtitle. A second task re-picks better subtitles for files this plugin wrote earlier.",
+    "overview":  "自动为影视库补中文外挂字幕：普通影视按片名搜索，按番号命名的影片按番号搜索。",
+    "description":  "从迅雷字幕 API 搜索并下载中文外挂字幕，写入视频同目录的 <片名>.chi.srt/.ass，Jellyfin 会识别为外部字幕。每个影视库可以单独选择检索方式：普通影视按片名 + 年份搜索，剧集按「剧名 + SxxExx」搜索，按番号命名的影片（如 ABF-363）按番号搜索。下载后会逐条解码、校验格式、按台词字符数比较，丢弃机翻和其它语言，可选让大模型横向评审挑出最像人工翻译的一份。每个库还能分别开关「自动补全」（只处理完全没有字幕的影片）和「自动择优」（对已有插件字幕重新比较，更好才替换）；网盘同步的字幕和内嵌字幕永远不会被覆盖。也支持在「右键 → 修改字幕 → 搜索字幕」里手动搜索、预览全文后再下载。",
     "category":  "Subtitles",
     "imagePath":  "logo.png",
     "timestamp":  "2026-11-02T12:00:00.0000000Z"
