@@ -33,7 +33,8 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
 
     /// <inheritdoc />
     public override string Description =>
-        "从迅雷字幕 API 自动下载外挂字幕：每个影视库可分别选择按番号或按片名检索，过滤机翻，择优写入 .chi.srt/.ass。";
+        "自动为影视库补中文外挂字幕：普通影视按片名搜索，按番号命名的影片按番号搜索。"
+        + "每个影视库可分别开关「自动补全」与「自动择优」，网盘同步的字幕和内嵌字幕永远不会被覆盖。";
 
     /// <inheritdoc />
     public override Guid Id => PluginId;
