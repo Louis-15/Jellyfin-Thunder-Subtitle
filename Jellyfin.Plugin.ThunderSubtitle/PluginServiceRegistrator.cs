@@ -30,6 +30,8 @@ public sealed class PluginServiceRegistrator : IPluginServiceRegistrator
         // Preview button in Jellyfin's own subtitle dialog: the text is parked in memory (never
         // written next to the video) and the script is injected into the web shell at request time.
         services.AddSingleton<PreviewTextCache>();
+        services.AddSingleton<HintStore>();
+        services.AddSingleton<AiScoreCache>();
         services.AddSingleton<IStartupFilter, ClientScriptInjectionFilter>();
 
         // Jellyfin picks this up through GetExports<ISubtitleProvider>, which fills the

@@ -18,11 +18,31 @@
     <Compile Include="..\..\Jellyfin.Plugin.ThunderSubtitle\Core\ReleaseCode.cs" Link="Core\ReleaseCode.cs" />
     <Compile Include="..\..\Jellyfin.Plugin.ThunderSubtitle\Core\SearchTarget.cs" Link="Core\SearchTarget.cs" />
     <Compile Include="..\..\Jellyfin.Plugin.ThunderSubtitle\Core\TitleMatch.cs" Link="Core\TitleMatch.cs" />
+    <Compile Include="..\..\Jellyfin.Plugin.ThunderSubtitle\Core\TitleYearGuard.cs" Link="Core\TitleYearGuard.cs" />
     <Compile Include="..\..\Jellyfin.Plugin.ThunderSubtitle\Core\SubtitleText.cs" Link="Core\SubtitleText.cs" />
     <Compile Include="..\..\Jellyfin.Plugin.ThunderSubtitle\Core\SubtitleContent.cs" Link="Core\SubtitleContent.cs" />
+    <Compile Include="..\..\Jellyfin.Plugin.ThunderSubtitle\Core\MediaKind.cs" Link="Core\MediaKind.cs" />
+    <Compile Include="..\..\Jellyfin.Plugin.ThunderSubtitle\Core\LanguagePolicy.cs" Link="Core\LanguagePolicy.cs" />
+    <Compile Include="..\..\Jellyfin.Plugin.ThunderSubtitle\Core\SubtitleModels.cs" Link="Core\SubtitleModels.cs" />
+    <Compile Include="..\..\Jellyfin.Plugin.ThunderSubtitle\Core\SubtitleHealth.cs" Link="Core\SubtitleHealth.cs" />
     <Compile Include="..\..\Jellyfin.Plugin.ThunderSubtitle\Core\SubtitleRanker.cs" Link="Core\SubtitleRanker.cs" />
+    <Compile Include="..\..\Jellyfin.Plugin.ThunderSubtitle\Core\SubtitleRanker.Health.cs" Link="Core\SubtitleRanker.Health.cs" />
+    <Compile Include="..\..\Jellyfin.Plugin.ThunderSubtitle\Core\SubtitleRanker.Upgrade.cs" Link="Core\SubtitleRanker.Upgrade.cs" />
+    <Compile Include="..\..\Jellyfin.Plugin.ThunderSubtitle\Core\NearDuplicate.cs" Link="Core\NearDuplicate.cs" />
     <Compile Include="..\..\Jellyfin.Plugin.ThunderSubtitle\Core\SubtitleLanguage.cs" Link="Core\SubtitleLanguage.cs" />
     <Compile Include="..\..\Jellyfin.Plugin.ThunderSubtitle\Core\ThunderClient.cs" Link="Core\ThunderClient.cs" />
+
+    <!--
+      AI 送审这条链路刻意用「同一份源码」而不是复制一份简化版：
+      抽样、片段对齐、prompt 组装一旦和线上有差异，probe 核对出来的结论就不可信。
+      下面这些文件都不碰 Jellyfin，可以直接编进 probe。
+    -->
+    <Compile Include="..\..\Jellyfin.Plugin.ThunderSubtitle\Core\ShortlistSelector.cs" Link="Core\ShortlistSelector.cs" />
+    <Compile Include="..\..\Jellyfin.Plugin.ThunderSubtitle\Core\MediaBrief.cs" Link="Core\MediaBrief.cs" />
+    <Compile Include="..\..\Jellyfin.Plugin.ThunderSubtitle\Core\AiSettings.cs" Link="Core\AiSettings.cs" />
+    <Compile Include="..\..\Jellyfin.Plugin.ThunderSubtitle\Core\AiPrompts.cs" Link="Core\AiPrompts.cs" />
+    <Compile Include="..\..\Jellyfin.Plugin.ThunderSubtitle\Core\AiPromptBuilder.cs" Link="Core\AiPromptBuilder.cs" />
+    <Compile Include="..\..\Jellyfin.Plugin.ThunderSubtitle\Core\AlignedSampler.cs" Link="Core\AlignedSampler.cs" />
   </ItemGroup>
 
 </Project>

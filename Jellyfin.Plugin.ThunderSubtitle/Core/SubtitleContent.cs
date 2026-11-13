@@ -37,27 +37,39 @@ public static class SubtitleContent
     /// <returns>The cue count and character count.</returns>
     public static SubtitleStats Measure(string text, string extension)
     {
+        return Measure(Parse(text, extension), text);
+    }
+
+    /// <summary>
+    /// Measures an already-parsed subtitle.
+    ///
+    /// 双语检测也要遍历 cue，若两边各自解析一次，同一份字幕会被解析两遍。
+    /// 这个重载让调用方（<see cref="SubtitlePick"/>）只解析一次、两处复用。
+    /// </summary>
+    /// <param name="cues">The parsed cues.</param>
+    /// <param name="text">The original text, used when parsing produced nothing.</param>
+    /// <returns>The cue count and character count.</returns>
+    public static SubtitleStats Measure(IReadOnlyList<SubtitleCue> cues, string text)
+    {
+        if (cues.Count > 0)
+        {
+            var total = 0;
+            foreach (var cue in cues)
+            {
+                total += CountContentChars(cue.Text);
+            }
+
+            return new SubtitleStats(cues.Count, total);
+        }
+
         if (string.IsNullOrWhiteSpace(text))
         {
             return SubtitleStats.Empty;
         }
 
-        var cues = Parse(text, extension);
-        if (cues.Count == 0)
-        {
-            // Unparseable but decoded: fall back to counting the visible text so the
-            // candidate still gets a comparable number instead of zero.
-            var plain = StripMarkup(text);
-            return new SubtitleStats(0, CountContentChars(plain));
-        }
-
-        var total = 0;
-        foreach (var cue in cues)
-        {
-            total += CountContentChars(cue.Text);
-        }
-
-        return new SubtitleStats(cues.Count, total);
+        // Unparseable but decoded: fall back to counting the visible text so the
+        // candidate still gets a comparable number instead of zero.
+        return new SubtitleStats(0, CountContentChars(StripMarkup(text)));
     }
 
     /// <summary>Parses a subtitle into cues.</summary>

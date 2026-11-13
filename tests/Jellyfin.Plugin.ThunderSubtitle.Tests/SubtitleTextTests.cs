@@ -70,6 +70,71 @@ public class SubtitleTextTests
     }
 
     [Fact]
+    public void RejectsHtmlPageWhoseCommentsLookLikeSrtArrows()
+    {
+        // 真实案例：上游 CDN 返回字幕站的下载页（79 KB），HTML 注释里的 "-->" 与
+        // SRT 的时间轴箭头一模一样，旧实现会把它当成 .ass 并参与排序。
+        var html = "<!DOCTYPE html>\n<html lang=\"zh-CN\">\n<head><title>字幕库</title></head>\n"
+                   + "<body><script>\nvar x = 1; <!-- 1 --> 2 --> 3;\n</script>\n"
+                   + "<p>流浪地球 字幕下载</p>\n</body></html>";
+        Assert.Null(SubtitleText.DetectExtension(html, "ass"));
+    }
+
+    [Fact]
+    public void RejectsTruncatedAssWithoutEvents()
+    {
+        // 真实案例：245 KB 的 ASS 只剩 [Script Info] 和 [V4+ Styles]，
+        // 没有 [Events] 也没有 Dialogue 行，解析不出任何台词。
+        var truncated = "[Script Info]\nScriptType: v4.00+\nTitle: 奶飞版修复字幕\n\n"
+                        + "[V4+ Styles]\nFormat: Name, Fontname, Fontsize\nStyle: Default,Arial,62\n";
+        Assert.Null(SubtitleText.DetectExtension(truncated, "ass"));
+    }
+
+    [Fact]
+    public void AcceptsAssWithDialogueEvenWithoutEventsHeader()
+    {
+        // 反向保护：有 [Script Info] 且有 Dialogue 行的文件仍然算 ASS，
+        // 不能因为缺少 [Events] 标题就一律拒绝。
+        var ass = "[Script Info]\nScriptType: v4.00+\n\n"
+                  + "Dialogue: 0,0:00:01.00,0:00:03.00,Default,,0,0,0,,你好\n";
+        Assert.Equal(".ass", SubtitleText.DetectExtension(ass, "ass"));
+    }
+
+    [Fact]
+    public void RejectsAssDanmakuExport()
+    {
+        // 真实案例：B 站视频的弹幕导出成 ASS 后混进字幕库，8000 条全是 \move 滚动，
+        // 字符数比任何真字幕都多，不排除会直接胜出。
+        var builder = new StringBuilder();
+        builder.Append("[Script Info]\nScriptType: v4.00+\n\n[V4+ Styles]\nFormat: Name, Fontname, Fontsize\n");
+        builder.Append("Style: AcplayDefault,Arial,60\n\n[Events]\n");
+        builder.Append("Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text\n");
+        for (var i = 0; i < 60; i++)
+        {
+            builder.Append($"Dialogue: 3,0:00:01.{i:D2},0:00:09.00,AcplayDefault,,0,0,0,,{{\\move(2400, 64, -480, 64)}}弹幕第{i}条\n");
+        }
+
+        Assert.Null(SubtitleText.DetectExtension(builder.ToString(), "ass"));
+    }
+
+    [Fact]
+    public void AcceptsNormalAssThatUsesMoveForSigns()
+    {
+        // 反向保护：正常字幕偶尔用 \move 做标牌翻译，占比很低，不能误判成弹幕。
+        var builder = new StringBuilder();
+        builder.Append("[Script Info]\nScriptType: v4.00+\n\n[V4+ Styles]\nFormat: Name, Fontname, Fontsize\n");
+        builder.Append("Style: Default,Arial,60\n\n[Events]\n");
+        builder.Append("Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text\n");
+        for (var i = 0; i < 60; i++)
+        {
+            var effect = i < 2 ? "{\\move(100, 100, 200, 200)}" : string.Empty;
+            builder.Append($"Dialogue: 0,0:00:01.{i:D2},0:00:09.00,Default,,0,0,0,,{effect}第{i}句台词\n");
+        }
+
+        Assert.Equal(".ass", SubtitleText.DetectExtension(builder.ToString(), "ass"));
+    }
+
+    [Fact]
     public void RejectsSmi()
     {
         var smi = "<SAMI><BODY><SYNC Start=1000><P Class=KRCC>你好</SYNC></BODY></SAMI>";

@@ -19,7 +19,7 @@ namespace Jellyfin.Plugin.ThunderSubtitle.Providers;
 /// -> 修改字幕 -> 搜索字幕. Jellyfin calls this provider, the user picks one candidate and
 /// Jellyfin writes it next to the video as <c>&lt;name&gt;.chi.&lt;ext&gt;</c>.
 /// </summary>
-public sealed class ThunderSubtitleProvider : ISubtitleProvider
+public sealed partial class ThunderSubtitleProvider : ISubtitleProvider
 {
     /// <summary>The name shown in Jellyfin's provider lists and search results.</summary>
     public const string DisplayName = "迅雷字幕";
@@ -30,22 +30,26 @@ public sealed class ThunderSubtitleProvider : ISubtitleProvider
     private readonly ISubtitleFinder _finder;
     private readonly ThunderClient _thunder;
     private readonly ILibraryContext _libraryContext;
+    private readonly HintStore _hints;
     private readonly PluginLog _log;
 
     /// <summary>Initializes a new instance of the <see cref="ThunderSubtitleProvider"/> class.</summary>
     /// <param name="finder">The shared search pipeline.</param>
     /// <param name="thunder">Used to fetch the chosen candidate again.</param>
     /// <param name="libraryContext">Tells which library the item belongs to, so the configured search mode applies.</param>
+    /// <param name="hints">手动搜索对话框里填的附加提示词。</param>
     /// <param name="logger">Logger.</param>
     public ThunderSubtitleProvider(
         ISubtitleFinder finder,
         ThunderClient thunder,
         ILibraryContext libraryContext,
+        HintStore hints,
         Microsoft.Extensions.Logging.ILogger<ThunderSubtitleProvider> logger)
     {
         _finder = finder;
         _thunder = thunder;
         _libraryContext = libraryContext;
+        _hints = hints;
         _log = new PluginLog(logger);
     }
 
@@ -54,62 +58,6 @@ public sealed class ThunderSubtitleProvider : ISubtitleProvider
 
     /// <inheritdoc />
     public IEnumerable<VideoContentType> SupportedMediaTypes => [VideoContentType.Movie, VideoContentType.Episode];
-
-    /// <inheritdoc />
-    public async Task<IEnumerable<RemoteSubtitleInfo>> Search(
-        SubtitleSearchRequest request,
-        CancellationToken cancellationToken)
-    {
-        _log.Info(
-            $"手动搜索请求：Name=「{request.Name}」，MediaPath=「{request.MediaPath}」，"
-            + $"Language={Show(request.Language)}，TwoLetter={Show(request.TwoLetterISOLanguageName)}，"
-            + $"ContentType={request.ContentType}。");
-
-        if (!IsChineseRequested(request))
-        {
-            _log.Info($"跳过：请求的语言不是中文（Language={Show(request.Language)}，TwoLetter={Show(request.TwoLetterISOLanguageName)}）。");
-            return Array.Empty<RemoteSubtitleInfo>();
-        }
-
-        // 用哪个模式取决于条目所在影视库的配置：番号库按番号查，普通影视库按片名查。
-        var mode = _libraryContext.ModeForPath(request.MediaPath);
-        var target = _libraryContext.FromRequest(request, mode);
-        if (target is null)
-        {
-            _log.Info($"手动搜索：无法从「{request.Name ?? request.MediaPath}」识别"
-                      + (mode == SubtitleSearchMode.Code ? "番号" : "片名") + "。");
-            return Array.Empty<RemoteSubtitleInfo>();
-        }
-
-        _log.Info($"手动搜索：影视库检索方式 {(mode == SubtitleSearchMode.Code ? "番号" : "片名")}，查询「{target.Label}」。");
-
-        FindOutcome outcome;
-        try
-        {
-            outcome = await _finder.FindAsync(target, cancellationToken).ConfigureAwait(false);
-        }
-        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
-        {
-            throw;
-        }
-        catch (Exception ex)
-        {
-            _log.Warn($"手动搜索 [{target.Label}] 失败：{ex.Message}");
-            return Array.Empty<RemoteSubtitleInfo>();
-        }
-
-        _log.Info($"手动搜索 [{target.Label}]：候选 {outcome.Candidates.Count} 条，中文 {outcome.Ranked.Count} 条。");
-
-        if (outcome.Ranked.Count == 0)
-        {
-            return [Notice(target.Label, outcome)];
-        }
-
-        return outcome.Ranked
-            .Where(pick => pick.Uri is not null)
-            .Select((pick, index) => ToInfo(pick, index + 1, outcome, request.MediaPath))
-            .ToArray();
-    }
 
     /// <inheritdoc />
     public async Task<SubtitleResponse> GetSubtitles(string id, CancellationToken cancellationToken)
@@ -204,6 +152,8 @@ public sealed class ThunderSubtitleProvider : ISubtitleProvider
     {
         SubtitleLanguage.SimplifiedChinese => "简体",
         SubtitleLanguage.TraditionalChinese => "繁体",
+        SubtitleLanguage.SimplifiedChineseEnglish => "简英双语",
+        SubtitleLanguage.TraditionalChineseEnglish => "繁英双语",
         SubtitleLanguage.Japanese => "日文",
         SubtitleLanguage.Korean => "韩文",
         SubtitleLanguage.English => "英文",
@@ -238,84 +188,6 @@ public sealed class ThunderSubtitleProvider : ISubtitleProvider
                 _log.Warn($"手动下载：旧字幕 {Path.GetFileName(file)} 删不掉（{ex.Message}），Jellyfin 会另存一个新文件。");
             }
         }
-    }
-
-    /// <summary>
-    /// A row that explains why the list is otherwise empty. Jellyfin renders an empty result
-    /// as "no subtitles found", which hides the difference between "the API was empty" and
-    /// "the release genuinely has none", and the user cannot tell it should be retried.
-    /// </summary>
-    /// <param name="label">The code or title that was searched.</param>
-    /// <param name="outcome">What the pipeline produced.</param>
-    /// <returns>The notice row. Its id cannot be downloaded.</returns>
-    private static RemoteSubtitleInfo Notice(string label, FindOutcome outcome)
-    {
-        var reason = outcome.Candidates.Count == 0
-            ? $"上游接口连续 {ThunderClient.SearchAttempts} 次都返回空数据"
-            : $"上游 {outcome.Candidates.Count} 条候选里没有可用的中文字幕";
-
-        var detail = outcome.Candidates.Count == 0
-            ? "这是上游临时故障，过一会儿重试即可"
-            : string.Join('，', outcome.DroppedLanguages.Select(pair => $"{Show(pair.Key)} {pair.Value} 条")) + "，本次已按语言过滤丢弃";
-
-        return new RemoteSubtitleInfo
-        {
-            Id = SubtitleId.EncodePlaceholder(reason),
-            ProviderName = DisplayName,
-            Name = $"（{label}）{reason}",
-            Format = "srt",
-            Comment = detail,
-            ThreeLetterISOLanguageName = SavedLanguage,
-            IsHashMatch = false,
-            Forced = false,
-            HearingImpaired = false
-        };
-    }
-
-    private static RemoteSubtitleInfo ToInfo(
-        SubtitlePick pick,
-        int rank,
-        FindOutcome outcome,
-        string? mediaPath)
-    {
-        var language = pick.Language == SubtitleLanguage.TraditionalChinese ? "繁体" : "简体";
-        var size = pick.Bytes >= 1024
-            ? string.Create(CultureInfo.InvariantCulture, $"{pick.Bytes / 1024.0:F1} KB")
-            : $"{pick.Bytes} B";
-        var comment = $"{language} · {pick.ContentChars} 字 / {pick.CueCount} 条 · {size}";
-
-        float? rating = null;
-        bool? machine = pick.AiMarkers > 0 ? true : null;
-
-        var verdict = outcome.VerdictOf(pick);
-        if (verdict is not null)
-        {
-            // On its own line: Jellyfin renders the comment with white-space: pre-line, and mixing
-            // a long reason into the measurements made the row unreadable.
-            comment += "\n" + string.Create(CultureInfo.InvariantCulture, $"AI {verdict.Score:F0} 分");
-            if (!string.IsNullOrWhiteSpace(verdict.Reason))
-            {
-                comment += $"（{verdict.Reason}）";
-            }
-
-            rating = (float)Math.Round(verdict.Score / 20.0, 2);
-            machine = verdict.MachineTranslated;
-        }
-
-        return new RemoteSubtitleInfo
-        {
-            Id = SubtitleId.Encode(pick.Uri!, pick.Extension, pick.CandidateName, mediaPath),
-            ProviderName = DisplayName,
-            Name = $"{rank}. {pick.CandidateName}",
-            Format = pick.Extension.TrimStart('.'),
-            Comment = comment,
-            ThreeLetterISOLanguageName = SavedLanguage,
-            CommunityRating = rating,
-            MachineTranslated = machine,
-            IsHashMatch = false,
-            Forced = false,
-            HearingImpaired = false
-        };
     }
 }
 

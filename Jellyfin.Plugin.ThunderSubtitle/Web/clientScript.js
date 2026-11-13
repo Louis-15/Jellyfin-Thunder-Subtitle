@@ -18,6 +18,7 @@
     var ID_MARKER = 'ts1-';
     var BUTTON_CLASS = 'btnThunderPreview';
     var STYLE_ID = 'thunderSubtitlePreviewStyle';
+    var HINT_CLASS = 'tsHintBox';
 
     // document.currentScript is only available while this file executes, so capture it now:
     // it is the fallback for the API root when window.ApiClient is not exposed.
@@ -184,7 +185,13 @@
             'font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:.92rem;line-height:1.55;',
             'white-space:pre;tab-size:4;}',
             '.tsPreviewBody.tsPreviewWrap{white-space:pre-wrap;word-break:break-word;}',
-            '.tsPreviewEmpty{padding:2rem;color:#9aa0a6;}'
+            '.tsPreviewEmpty{padding:2rem;color:#9aa0a6;}',
+            '.tsHintBox{padding:.6rem .2rem 1rem;}',
+            '.tsHintLabel{font-size:.85em;color:#9aa0a6;margin-bottom:.35rem;}',
+            '.tsHintInput{width:100%;box-sizing:border-box;resize:vertical;min-height:2.6em;',
+            'padding:.45em .6em;border-radius:.25em;border:1px solid rgba(255,255,255,.22);',
+            'background:rgba(255,255,255,.06);color:inherit;font:inherit;}',
+            '.tsHintState{margin-top:.3rem;font-size:.8em;color:#9aa0a6;min-height:1.1em;}'
         ].join('');
         document.head.appendChild(style);
     }
@@ -314,8 +321,119 @@
             });
     }
 
+    // ---------------------------------------------------------------------
+    // 附加提示词：手动搜索对话框里的一行输入框
+    //
+    // 为什么不拦截「搜索」按钮：Jellyfin 各版本的按钮选择器一直在变，
+    // 拦截 + preventDefault + 重放 click 只要猜错一次，用户就点不动搜索。
+    // 改成「输入即保存」（debounce 500ms）：无论用户点哪个按钮、什么时候点，
+    // 服务器手上都已经有最新的提示词了，前端完全不介入搜索流程。
+    // ---------------------------------------------------------------------
+
+    function currentItemId() {
+        // 详情页与播放页的地址形如 #/details?id=<guid>，播放页是 #/video?id=<guid>。
+        var hash = window.location.hash || '';
+        var match = hash.match(/[?&]id=([0-9a-fA-F-]{32,36})/);
+        return match ? match[1] : null;
+    }
+
+    function postHint(itemId, hint) {
+        var url = apiUrl('Hint', null);
+        if (!url) {
+            return Promise.reject(new Error('no api url'));
+        }
+
+        var token = accessToken();
+        var headers = { 'Content-Type': 'application/json' };
+        if (token) {
+            headers.Authorization = 'MediaBrowser Token="' + token + '"';
+        }
+
+        return fetch(url, {
+            method: 'POST',
+            credentials: 'same-origin',
+            headers: headers,
+            body: JSON.stringify({ itemId: itemId, hint: hint || '' })
+        }).then(function (response) {
+            if (!response.ok) {
+                throw new Error('HTTP ' + response.status);
+            }
+
+            return response.json().catch(function () {
+                return {};
+            });
+        });
+    }
+
+    function saveHintSoon(itemId, box) {
+        var textarea = box.querySelector('.tsHintInput');
+        var state = box.querySelector('.tsHintState');
+        if (!textarea || !state) {
+            return;
+        }
+
+        if (saveHintSoon.timer) {
+            window.clearTimeout(saveHintSoon.timer);
+        }
+
+        state.textContent = '正在保存…';
+        saveHintSoon.timer = window.setTimeout(function () {
+            postHint(itemId, textarea.value)
+                .then(function (data) {
+                    var length = data && typeof data.length === 'number' ? data.length : 0;
+                    state.textContent = length > 0
+                        ? '已应用（' + length + ' 字），只影响本次搜索'
+                        : '';
+                })
+                .catch(function () {
+                    // 降级：提示词没送到，搜索照常进行，只是按默认尺度评审。
+                    state.textContent = '提示词没有送到服务器，本次搜索按默认尺度评审';
+                });
+        }, 500);
+    }
+
+    function ensureHintBox() {
+        var dialog = document.querySelector('.subtitleEditorDialog');
+        if (!dialog || dialog.querySelector('.' + HINT_CLASS)) {
+            return;
+        }
+
+        var itemId = currentItemId();
+        if (!itemId) {
+            // 拿不到条目 Id，后端就没法把提示词和这次搜索对上。
+            // 宁可不显示输入框，也不要让用户填了却静默失效。
+            return;
+        }
+
+        ensureStyle();
+
+        var box = document.createElement('div');
+        box.className = HINT_CLASS;
+        box.innerHTML = [
+            '<div class="tsHintLabel">本次搜索的额外要求（可选，10 分钟内有效）</div>',
+            '<textarea class="tsHintInput" rows="2" maxlength="500" placeholder="例如：这是 1970 年代的黑帮片，用词粗粝一点，不要用网络语"></textarea>',
+            '<div class="tsHintState"></div>'
+        ].join('');
+
+        // 插在搜索结果上方；对话框还没渲染结果时退化为追加到末尾。
+        var results = dialog.querySelector('.subtitleResults');
+        if (results && results.parentNode) {
+            results.parentNode.insertBefore(box, results);
+        } else {
+            dialog.appendChild(box);
+        }
+
+        var textarea = box.querySelector('.tsHintInput');
+        if (textarea) {
+            textarea.addEventListener('input', function () {
+                saveHintSoon(itemId, box);
+            });
+        }
+    }
+
     function start() {
         scan();
+        ensureHintBox();
 
         var observer = new MutationObserver(scheduleScan);
         observer.observe(document.body, { childList: true, subtree: true });
@@ -325,6 +443,7 @@
         window.setInterval(function () {
             if (document.querySelector('.subtitleEditorDialog')) {
                 scan();
+                ensureHintBox();
             }
         }, 1000);
     }

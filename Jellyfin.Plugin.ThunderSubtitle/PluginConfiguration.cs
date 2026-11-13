@@ -7,8 +7,11 @@ namespace Jellyfin.Plugin.ThunderSubtitle;
 
 /// <summary>
 /// Plugin settings, surfaced on the plugin configuration page.
+///
+/// AI 相关的字段在 <c>PluginConfiguration.Ai.cs</c>：配置页本来就是把它们放在另一个
+/// fieldset 里，混在同一个文件只会让人翻不到想改的那一项。
 /// </summary>
-public class PluginConfiguration : BasePluginConfiguration
+public partial class PluginConfiguration : BasePluginConfiguration
 {
     /// <summary>Gets or sets a value indicating whether the scheduled tasks may download anything.</summary>
     public bool Enabled { get; set; } = true;
@@ -59,89 +62,25 @@ public class PluginConfiguration : BasePluginConfiguration
     /// </summary>
     public bool RealtimeFill { get; set; } = true;
 
+    /// <summary>
+    /// 视频本身带内嵌字幕时，自动补全是否仍然下载外挂中文字幕。
+    ///
+    /// 默认关闭：内嵌字幕通常已经能看，再补一份只会让字幕列表变长。
+    /// 但内嵌的 PGS 图形字幕不能搜索、不能调样式、不能单独导出，
+    /// 也确实存在「能看但不够好」的情况 —— 想在这种片子上换一份外挂字幕，把这项打开即可。
+    ///
+    /// 手动搜索不受此限制：用户点「搜索字幕」本来就是「我想换一份」的意思。
+    /// </summary>
+    public bool FillDespiteEmbeddedSubtitle { get; set; }
+
     /// <summary>Gets or sets the log level written to the Jellyfin log.</summary>
     public string LogLevel { get; set; } = "Information";
 
     /// <summary>
-    /// Gets or sets the Chinese form to prefer: <c>Simplified</c> (default) or
-    /// <c>Traditional</c>. Both are always acceptable; this only breaks the tie.
+    /// 已废弃：1.10 起语言偏好按影片类型和语言档位（<see cref="Core.LanguagePolicy"/>）推导，
+    /// 不再读这个值。保留字段只为兼容旧 XML 与配置页的历史记录，改它不会有任何效果。
     /// </summary>
     public string PreferredLanguage { get; set; } = "Simplified";
-
-    /// <summary>
-    /// Gets or sets a value indicating whether the largest finalists are sent to a chat
-    /// model so it can tell a real translation from verbose machine output.
-    /// </summary>
-    public bool AiEnabled { get; set; }
-
-    /// <summary>
-    /// Gets or sets the AI provider: <c>OpenCode</c> (built in) or <c>Custom</c>
-    /// (any other OpenAI-compatible endpoint).
-    /// </summary>
-    public string AiProvider { get; set; } = AiProviderOpenCode;
-
-    /// <summary>Provider id for the built-in OpenCode Go endpoint.</summary>
-    public const string AiProviderOpenCode = "OpenCode";
-
-    /// <summary>Provider id for a user-supplied OpenAI-compatible endpoint.</summary>
-    public const string AiProviderCustom = "Custom";
-
-    /// <summary>
-    /// The OpenCode Go API root. Required by their terms: requests must also carry a
-    /// stable <c>x-opencode-session</c> header, which <see cref="Core.AiSubtitleJudge"/> adds.
-    /// </summary>
-    public const string OpenCodeBaseUrl = "https://opencode.ai/inference/go/openai/v1";
-
-    /// <summary>Sensible default model on OpenCode Go.</summary>
-    public const string OpenCodeDefaultModel = "deepseek-v4.1-flash";
-
-    /// <summary>Gets or sets the OpenAI-compatible API root for the custom provider.</summary>
-    public string AiBaseUrl { get; set; } = string.Empty;
-
-    /// <summary>Gets or sets the API key. Sent as a bearer token, never logged.</summary>
-    public string AiApiKey { get; set; } = string.Empty;
-
-    /// <summary>Gets or sets the model name.</summary>
-    public string AiModel { get; set; } = OpenCodeDefaultModel;
-
-    /// <summary>
-    /// 每个「条数档位」挑几份送 AI 评审。
-    ///
-    /// 条数最多的那一批常常是同一份机翻的不同转码（AI 翻译的条目往往还更多），
-    /// 只按条数取前 N 名会把真正的人翻挤出评审范围。所以改成：
-    /// 按条数分档（相邻差 ≤ 2% 算同一档）→ 取条数最多的前 3 档 → 每档挑这个数量。
-    /// 默认 2，即 3 档 × 2 份 = 6 份。
-    /// </summary>
-    public int AiPerTier { get; set; } = 2;
-
-    /// <summary>
-    /// 旧版的「评审前 N 名」。1.9.1.0 起不再参与筛选，保留字段只为兼容已存在的 XML 配置
-    /// （删掉字段会让旧配置里的同名节点变成"未知元素"，虽然不影响解析，但没必要制造噪音）。
-    /// </summary>
-    public int AiTopCandidates { get; set; } = 3;
-
-    /// <summary>Gets or sets how many cue lines are sampled from each candidate.</summary>
-    public int AiSampleCues { get; set; } = 24;
-
-    /// <summary>Gets or sets the hard cap on sampled characters per candidate.</summary>
-    public int AiMaxCharsPerCandidate { get; set; } = 3000;
-
-    /// <summary>Gets or sets the per-request timeout.</summary>
-    public int AiTimeoutSeconds { get; set; } = 60;
-
-    /// <summary>Gets a value indicating whether the AI check has everything it needs.</summary>
-    public bool IsAiUsable => AiEnabled
-                              && !string.IsNullOrWhiteSpace(ApiRoot)
-                              && !string.IsNullOrWhiteSpace(AiModel);
-
-    /// <summary>Gets the effective API root for the selected provider.</summary>
-    public string ApiRoot => IsOpenCodeProvider
-        ? OpenCodeBaseUrl
-        : (AiBaseUrl ?? string.Empty).Trim();
-
-    /// <summary>Gets a value indicating whether the built-in OpenCode endpoint is selected.</summary>
-    public bool IsOpenCodeProvider =>
-        string.Equals(AiProvider, AiProviderOpenCode, StringComparison.OrdinalIgnoreCase);
 
     /// <summary>Parses <see cref="LogLevel"/> without throwing on a hand-edited config file.</summary>
     /// <returns>The configured level, or <see cref="Core.PluginLogLevel.Information"/>.</returns>
@@ -150,15 +89,6 @@ public class PluginConfiguration : BasePluginConfiguration
         return Enum.TryParse<Core.PluginLogLevel>(LogLevel, ignoreCase: true, out var level)
             ? level
             : Core.PluginLogLevel.Information;
-    }
-
-    /// <summary>Parses <see cref="PreferredLanguage"/> into the enum used by the ranker.</summary>
-    /// <returns>The preferred Chinese form.</returns>
-    public Core.SubtitleLanguage ResolvePreferredLanguage()
-    {
-        return string.Equals(PreferredLanguage, "Traditional", StringComparison.OrdinalIgnoreCase)
-            ? Core.SubtitleLanguage.TraditionalChinese
-            : Core.SubtitleLanguage.SimplifiedChinese;
     }
 
     /// <summary>Returns the configured library ids that are valid GUIDs.</summary>
@@ -193,22 +123,42 @@ public class PluginConfiguration : BasePluginConfiguration
     }
 
     /// <summary>
+    /// 取某个影视库**显式配置**的检索方式。
+    ///
+    /// 与 <see cref="ResolveSearchMode"/> 的区别：库没有配置条目时返回 <c>false</c>，
+    /// 而不是猜一个默认值。影片类型判定必须区分「明确是番号库」和「没配置过」——
+    /// 只有前者才是日本 AV。
+    /// </summary>
+    /// <param name="libraryId">The library id.</param>
+    /// <param name="mode">The configured mode, when there is one.</param>
+    /// <returns><c>true</c> when the library has a saved setting.</returns>
+    public bool TryResolveSearchMode(Guid libraryId, out Core.SubtitleSearchMode mode)
+    {
+        var entry = FindSetting(libraryId);
+        if (entry is null)
+        {
+            mode = Core.SubtitleSearchMode.Title;
+            return false;
+        }
+
+        mode = string.Equals(entry.Mode, SearchModeTitle, StringComparison.OrdinalIgnoreCase)
+            ? Core.SubtitleSearchMode.Title
+            : Core.SubtitleSearchMode.Code;
+        return true;
+    }
+
+    /// <summary>
     /// 取某个影视库配置的检索方式。
     /// 没有配置条目时返回 <see cref="Core.SubtitleSearchMode.Code"/>：
     /// 升级前建的配置没有这一项，必须保持原来的番号搜索行为。
+    /// 需要区分「没配置」与「明确是番号库」时请用 <see cref="TryResolveSearchMode"/>。
     /// </summary>
     /// <param name="libraryId">The library id.</param>
     /// <returns>The configured mode.</returns>
     public Core.SubtitleSearchMode ResolveSearchMode(Guid libraryId)
     {
-        var entry = FindSetting(libraryId);
-        if (entry is null)
-        {
-            return Core.SubtitleSearchMode.Code;
-        }
-
-        return string.Equals(entry.Mode, SearchModeTitle, StringComparison.OrdinalIgnoreCase)
-            ? Core.SubtitleSearchMode.Title
+        return TryResolveSearchMode(libraryId, out var mode)
+            ? mode
             : Core.SubtitleSearchMode.Code;
     }
 
@@ -232,24 +182,6 @@ public class PluginConfiguration : BasePluginConfiguration
     public bool IsAutoRepickEnabled(Guid libraryId)
     {
         return IsAutoFillEnabled(libraryId) && (FindSetting(libraryId)?.AutoRepick ?? true);
-    }
-
-    private LibrarySetting? FindSetting(Guid libraryId)
-    {
-        if (LibrarySettings is null)
-        {
-            return null;
-        }
-
-        foreach (var entry in LibrarySettings)
-        {
-            if (entry is not null && Guid.TryParse(entry.LibraryId, out var id) && id == libraryId)
-            {
-                return entry;
-            }
-        }
-
-        return null;
     }
 
     /// <summary>Clamps values that a hand-edited config file could have broken.</summary>
@@ -289,21 +221,25 @@ public class PluginConfiguration : BasePluginConfiguration
         LogLevel ??= "Information";
         PreferredLanguage ??= "Simplified";
 
-        AiBaseUrl ??= string.Empty;
-        AiApiKey ??= string.Empty;
-        AiModel ??= string.Empty;
-        AiProvider = string.Equals(AiProvider, AiProviderCustom, StringComparison.OrdinalIgnoreCase)
-            ? AiProviderCustom
-            : AiProviderOpenCode;
-        if (string.IsNullOrWhiteSpace(AiModel))
+        NormalizeAi();
+    }
+
+    private LibrarySetting? FindSetting(Guid libraryId)
+    {
+        if (LibrarySettings is null)
         {
-            AiModel = OpenCodeDefaultModel;
+            return null;
         }
-        AiTopCandidates = Math.Clamp(AiTopCandidates, 2, 5);
-        AiPerTier = Math.Clamp(AiPerTier, 1, 3);
-        AiSampleCues = Math.Clamp(AiSampleCues, 4, 80);
-        AiMaxCharsPerCandidate = Math.Clamp(AiMaxCharsPerCandidate, 500, 20_000);
-        AiTimeoutSeconds = Math.Clamp(AiTimeoutSeconds, 10, 300);
+
+        foreach (var entry in LibrarySettings)
+        {
+            if (entry is not null && Guid.TryParse(entry.LibraryId, out var id) && id == libraryId)
+            {
+                return entry;
+            }
+        }
+
+        return null;
     }
 }
 

@@ -14,6 +14,12 @@ namespace Jellyfin.Plugin.ThunderSubtitle.Core;
 /// <param name="Bytes">Size written.</param>
 /// <param name="AiMarkers">Machine-translation markers in the candidate name.</param>
 /// <param name="WrittenAt">When it was written (UTC).</param>
+/// <param name="MediaKind">写入时判定的影片类型，自动择优要按同一套规则比较。</param>
+/// <param name="Language">语言形式，例如 <c>SimplifiedChinese</c>。</param>
+/// <param name="AiScore">这份文件的 AI 分数，评审过才有。</param>
+/// <param name="AiSource">human / ai / asr / mixed。</param>
+/// <param name="TypoCount">中文影视的错别字数量。</param>
+/// <param name="PromptVersion">评分时使用的提示词版本，版本变了旧分数就不能比。</param>
 public sealed record SubtitleProvenance(
     string ItemId,
     string Code,
@@ -21,7 +27,13 @@ public sealed record SubtitleProvenance(
     string CandidateName,
     long Bytes,
     int AiMarkers,
-    DateTimeOffset WrittenAt);
+    DateTimeOffset WrittenAt,
+    string MediaKind = "",
+    string Language = "",
+    double? AiScore = null,
+    string AiSource = "",
+    int TypoCount = 0,
+    int PromptVersion = 0);
 
 /// <summary>
 /// Small JSON ledger of the subtitles this plugin wrote. It lets the re-pick task tell

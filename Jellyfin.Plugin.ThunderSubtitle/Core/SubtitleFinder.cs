@@ -63,9 +63,17 @@ public interface ISubtitleFinder
 {
     /// <summary>Searches and ranks the candidates for one target (code or title).</summary>
     /// <param name="target">What to search for.</param>
+    /// <param name="kind">The media kind, which decides the language tier order and the AI prompt.</param>
+    /// <param name="brief">影片元数据卡，拼进 AI 提示词；可为空。</param>
+    /// <param name="extraInstruction">手动搜索时用户输入的额外要求；定时任务传空。</param>
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>The outcome, even when nothing usable was found.</returns>
-    Task<FindOutcome> FindAsync(SearchTarget target, CancellationToken cancellationToken);
+    Task<FindOutcome> FindAsync(
+        SearchTarget target,
+        MediaKind kind,
+        MediaBrief? brief,
+        string? extraInstruction,
+        CancellationToken cancellationToken);
 }
 
 /// <summary>
@@ -73,30 +81,41 @@ public interface ISubtitleFinder
 /// "search subtitles" dialog. Keeping it in one place means the dialog shows exactly
 /// what the automatic run would pick.
 /// </summary>
-public sealed class SubtitleFinder : ISubtitleFinder
+public sealed partial class SubtitleFinder : ISubtitleFinder
 {
     private readonly ThunderClient _thunder;
     private readonly AiSubtitleJudge _ai;
+    private readonly AiScoreCache _cache;
     private readonly PluginLog _log;
     private DateTimeOffset _lastSearchAt = DateTimeOffset.MinValue;
 
     /// <summary>Initializes a new instance of the <see cref="SubtitleFinder"/> class.</summary>
     /// <param name="thunder">The Xunlei API client.</param>
     /// <param name="ai">The optional chat-model judge.</param>
+    /// <param name="cache">AI 评分缓存，避免自动补全与自动择优重复计费。</param>
     /// <param name="logger">Logger.</param>
-    public SubtitleFinder(ThunderClient thunder, AiSubtitleJudge ai, Microsoft.Extensions.Logging.ILogger<SubtitleFinder> logger)
+    public SubtitleFinder(
+        ThunderClient thunder,
+        AiSubtitleJudge ai,
+        AiScoreCache cache,
+        Microsoft.Extensions.Logging.ILogger<SubtitleFinder> logger)
     {
         _thunder = thunder;
         _ai = ai;
+        _cache = cache;
         _log = new PluginLog(logger);
     }
 
     /// <inheritdoc />
-    public async Task<FindOutcome> FindAsync(SearchTarget target, CancellationToken cancellationToken)
+    public async Task<FindOutcome> FindAsync(
+        SearchTarget target,
+        MediaKind kind,
+        MediaBrief? brief,
+        string? extraInstruction,
+        CancellationToken cancellationToken)
     {
         var config = Plugin.Current;
         config.Normalize();
-        var preferred = config.ResolvePreferredLanguage();
         var label = target.Label;
 
         var candidates = await SearchCandidatesAsync(target, config, cancellationToken).ConfigureAwait(false);
@@ -166,12 +185,33 @@ public sealed class SubtitleFinder : ISubtitleFinder
         started.Stop();
 
         var downloaded = picks.Where(pick => pick is not null).Select(pick => pick!).ToList();
-        var chinese = SubtitleRanker.KeepChineseOnly(downloaded);
-        var ranked = target.Mode == SubtitleSearchMode.Code
-            ? SubtitleRanker.Rank(chinese.Kept, target.Code, preferred).ToList()
-            : SubtitleRanker.RankForTitle(chinese.Kept, target, preferred).ToList();
+        var acceptable = SubtitleRanker.KeepAcceptable(kind, downloaded);
 
-        var outcome = new FindOutcome(candidates, accepted.Count, ranked, null, chinese.Dropped, skipped, started.Elapsed.TotalSeconds);
+        // 健康度淘汰：含中文率过低（其实是外挂英文字幕）、满屏未译标注、
+        // 中间有大段空白（整段剧情没翻）、断句粗到没法用（多句挤一条）——
+        // 这几类毛病在本地就能数出来，不必浪费送审名额和 token。
+        // 注意它只能淘汰，不能排名：时间轴整体错位这类错误只有读了台词才发现。
+        var healthy = SubtitleRanker.DropUnusable(acceptable.Kept);
+        foreach (var entry in healthy.Dropped)
+        {
+            _log.Info($"[{label}] 健康度淘汰「{entry.Pick.CandidateName}」：{entry.Reason}。");
+        }
+
+        var ranked = target.Mode == SubtitleSearchMode.Code
+            ? SubtitleRanker.Rank(healthy.Kept, kind, target.Code).ToList()
+            : SubtitleRanker.RankForTitle(healthy.Kept, target, kind).ToList();
+
+        // 近似去重：排在排序之后，因为「保留哪一份」由质量顺序决定。
+        // 放在短名单之前，因为它的目的就是把被转码版本挤占的送审名额还回来。
+        var collapse = NearDuplicate.Collapse(ranked, config.NearDuplicateThreshold);
+        if (collapse.Merged > 0)
+        {
+            _log.Info($"[{label}] 近似去重：{ranked.Count} 份候选合并为 {collapse.Kept.Count} 份"
+                      + $"（{collapse.Merged} 份与已有候选相似度 ≥ {config.NearDuplicateThreshold:P0}）。");
+            ranked = collapse.Kept;
+        }
+
+        var outcome = new FindOutcome(candidates, healthy.Kept.Count, ranked, null, acceptable.Dropped, skipped, started.Elapsed.TotalSeconds);
 
         if (ranked.Count == 0 || !config.IsAiUsable || ranked.Count < 2)
         {
@@ -183,15 +223,64 @@ public sealed class SubtitleFinder : ISubtitleFinder
             return outcome with { Shortlist = ranked.Take(1).ToArray() };
         }
 
-        var shortlist = SelectShortlist(ranked, config.AiPerTier);
+        var shortlist = ShortlistSelector.Select(ranked, kind, config.AiPerTier);
         if (shortlist.Count > 1)
         {
-            _log.Info($"[{label}] AI 评审：候选 {ranked.Count} 份按条数分档，选出 {shortlist.Count} 份送审。");
+            var detail = string.Join(
+                " / ",
+                shortlist
+                    .GroupBy(pick => LanguagePolicy.TierOf(kind, pick.Language))
+                    .OrderBy(group => group.Key)
+                    .Select(group => $"Tier{group.Key} {LanguagePolicy.TierName(kind, group.Key)} {group.Count()} 份"));
+            _log.Info($"[{label}] AI 评审：候选 {ranked.Count} 份，选出 {shortlist.Count} 份送审（{detail}）。");
         }
 
-        var verdicts = await _ai
-            .JudgeAsync(target, shortlist, AiSettings.From(config, Guid.NewGuid().ToString("N")), preferred, cancellationToken)
-            .ConfigureAwait(false);
+        var keys = shortlist
+            .Select(pick => AiScoreCache.Key(pick, kind, extraInstruction, config.AiModel))
+            .ToArray();
+
+        IReadOnlyDictionary<int, AiVerdict>? verdicts = null;
+
+        // 只有「整批都命中」才用缓存。
+        //
+        // 部分命中时不能混用：模型的分数是相对同一批候选给出的锚点，
+        // 拿缓存的 4 份分数和现场评的 2 份分数一起排序，等于把两把不同的尺子接起来。
+        if (config.AiCacheEnabled)
+        {
+            var cached = keys.Select(key => _cache.Get(key, config.AiCacheDays)).ToArray();
+            if (cached.All(verdict => verdict is not null))
+            {
+                verdicts = cached
+                    .Select((verdict, index) => verdict! with { Id = index + 1 })
+                    .ToDictionary(verdict => verdict.Id);
+
+                _log.Info($"[{label}] AI 缓存命中 {shortlist.Count} 份（{config.AiCacheDays} 天内评过同一批候选），本次不调用接口。");
+            }
+        }
+
+        if (verdicts is null)
+        {
+            verdicts = await _ai
+                .JudgeAsync(
+                    kind,
+                    brief,
+                    shortlist,
+                    AiSettings.From(config, Guid.NewGuid().ToString("N")),
+                    extraInstruction,
+                    cancellationToken)
+                .ConfigureAwait(false);
+
+            if (verdicts is not null && config.AiCacheEnabled)
+            {
+                foreach (var verdict in verdicts.Values)
+                {
+                    if (verdict.Id >= 1 && verdict.Id <= keys.Length)
+                    {
+                        _cache.Set(keys[verdict.Id - 1], verdict);
+                    }
+                }
+            }
+        }
 
         if (verdicts is null)
         {
@@ -201,294 +290,16 @@ public sealed class SubtitleFinder : ISubtitleFinder
         var judged = new HashSet<SubtitlePick>(shortlist, ReferenceEqualityComparer.Instance);
         return outcome with
         {
-            Ranked = SubtitleRanker.ApplyAiVerdicts(shortlist, verdicts)
+            Ranked = SubtitleRanker.ApplyAiVerdicts(
+                    shortlist,
+                    verdicts,
+                    kind,
+                    config.AiSimplifiedAcceptScore,
+                    config.AiTierOverrideGap)
                 .Concat(ranked.Where(pick => !judged.Contains(pick)))
                 .ToArray(),
             Verdicts = verdicts,
             Shortlist = shortlist
         };
-    }
-
-    /// <summary>Hard cap on how many candidates one judgement may compare.</summary>
-    internal const int MaxJudgedCandidates = 12;
-
-    /// <summary>
-    /// 送 AI 评审时覆盖几个「条数档位」。
-    /// 3 档是用户定的：太少容易全落在同一份机翻的副本里，太多则 prompt 变长、费用变高。
-    /// </summary>
-    internal const int ShortlistTiers = 3;
-
-    /// <summary>
-    /// 条数相差不超过「较高者」的这个百分比，就算同一个档位。
-    /// 用户举的例子：500 条和 504 条应当是同一档（差 0.8%），
-    /// 而 500 / 480（差 4%）应当分成两档。
-    /// </summary>
-    internal const double TierTolerancePercent = 2.0;
-
-    /// <summary>
-    /// Picks what the model compares.
-    ///
-    /// 规则：
-    /// 1. 按「条数」把候选分档，相邻差 ≤ <see cref="TierTolerancePercent"/> 算同一档；
-    /// 2. 前 <see cref="ShortlistTiers"/> 档，每档挑 <paramref name="perTier"/> 份
-    ///    （档内按质量排序取前面的）；
-    /// 3. **档位不足时不凑数就完事**：从第 4 档起继续按档位顺序补，直到凑满
-    ///    <c>perTier × ShortlistTiers</c> 份，最多 <see cref="MaxJudgedCandidates"/> 份。
-    ///
-    /// 为什么不再只取「前 N 名」：条数最多的那一批往往是同一份机翻的不同转码，
-    /// 而 AI 翻译的条目通常还更多。只按条数取前 N，会把排在后面的人翻彻底挤出评审，
-    /// 于是模型只能在几份机翻里挑一份"最不烂的"。
-    ///
-    /// 为什么第 3 步是必须的：实际候选的条数常常很分散（例：1910 / 1434 / 928），
-    /// 每档只有一份，只做前两步就只能选出 3 份。用户要的是「6 份一起比」，
-    /// 「每档 2 份」只是达成它的手段。
-    /// </summary>
-    /// <param name="ranked">Chinese candidates, best first.</param>
-    /// <param name="perTier">每档取几份。</param>
-    /// <returns>按档位从高到低排好的候选，最多 <see cref="MaxJudgedCandidates"/> 份。</returns>
-    internal static List<SubtitlePick> SelectShortlist(IReadOnlyList<SubtitlePick> ranked, int perTier)
-    {
-        if (ranked.Count == 0)
-        {
-            return [];
-        }
-
-        var take = Math.Clamp(perTier, 1, MaxJudgedCandidates);
-        var target = Math.Min(take * ShortlistTiers, MaxJudgedCandidates);
-
-        // 质量顺序：Rank 已经把「名字带番号 / 机翻标记 / 语言 / 字数 / 条数」都算进去了，
-        // 档内挑代表时优先取它排在前面的那几个。
-        var qualityIndex = new Dictionary<SubtitlePick, int>(ReferenceEqualityComparer.Instance);
-        for (var i = 0; i < ranked.Count; i++)
-        {
-            qualityIndex[ranked[i]] = i;
-        }
-
-        // 分档只看条数 —— 这是「一份字幕完整不完整」最直观、也最不容易被文件名骗到的指标。
-        var tiers = new List<List<SubtitlePick>>();
-        var baseline = 0;
-
-        foreach (var pick in ranked.OrderByDescending(pick => pick.CueCount))
-        {
-            if (tiers.Count == 0 || !IsSameTier(baseline, pick.CueCount))
-            {
-                tiers.Add([]);
-                baseline = pick.CueCount;
-            }
-
-            tiers[^1].Add(pick);
-        }
-
-        var shortlist = new List<SubtitlePick>();
-
-        // 第一轮：前 N 档，每档取 take 份。
-        foreach (var tier in tiers.Take(ShortlistTiers))
-        {
-            shortlist.AddRange(tier
-                .OrderBy(pick => qualityIndex.TryGetValue(pick, out var index) ? index : int.MaxValue)
-                .Take(take));
-        }
-
-        // 第二轮：档位不够多（每档只有一两份）时继续往后补，直到凑满目标数量。
-        // 仍然按档位顺序取，所以补进来的依然是「不同条数区间」的样本，
-        // 不会被同一档里剩下的机翻副本填满。
-        foreach (var tier in tiers.Skip(ShortlistTiers))
-        {
-            if (shortlist.Count >= target)
-            {
-                break;
-            }
-
-            shortlist.AddRange(tier
-                .OrderBy(pick => qualityIndex.TryGetValue(pick, out var index) ? index : int.MaxValue)
-                .Take(target - shortlist.Count));
-        }
-
-        return shortlist.Take(MaxJudgedCandidates).ToList();
-    }
-
-    /// <summary>
-    /// 判断某个条数是否还算在 <paramref name="baseline"/> 开启的那一档里。
-    /// 条数为 0 的（解析失败的空壳）不参与模糊匹配，各自单独成档。
-    /// </summary>
-    /// <param name="baseline">该档的基准条数（档内最大值）。</param>
-    /// <param name="cues">待判断的条数。</param>
-    /// <returns>同一档返回 true。</returns>
-    private static bool IsSameTier(int baseline, int cues)
-    {
-        if (baseline <= 0)
-        {
-            return cues == baseline;
-        }
-
-        return Math.Abs(baseline - cues) <= baseline * TierTolerancePercent / 100.0;
-    }
-
-    /// <summary>
-    /// Searches the API for the target. 番号模式沿用原来的逻辑：候选里没有一条带这个番号时，
-    /// 换一个前导零写法再查一次（索引把 <c>NIMA-086</c> 和 <c>NIMA-86</c> 当成两次不同的搜索）。
-    /// 片名模式则先按证据收窄，收窄不到就退一步用纯片名再查。
-    /// </summary>
-    private async Task<IReadOnlyList<ThunderCandidate>> SearchCandidatesAsync(
-        SearchTarget target,
-        PluginConfiguration config,
-        CancellationToken cancellationToken)
-    {
-        return target.Mode == SubtitleSearchMode.Title
-            ? await SearchByTitleAsync(target, config, cancellationToken).ConfigureAwait(false)
-            : await SearchByCodeAsync(target.Code!, config, cancellationToken).ConfigureAwait(false);
-    }
-
-    private async Task<IReadOnlyList<ThunderCandidate>> SearchByCodeAsync(
-        string code,
-        PluginConfiguration config,
-        CancellationToken cancellationToken)
-    {
-        var candidates = await SearchOnceLoggedAsync(code, config, cancellationToken).ConfigureAwait(false);
-
-        if (candidates.Any(candidate => SubtitleRanker.HasCode(candidate.Name, code)))
-        {
-            return candidates;
-        }
-
-        var alternative = ReleaseCode.AlternativeSpelling(code);
-        if (alternative is null)
-        {
-            WarnIfEmpty(code, candidates);
-            return candidates;
-        }
-
-        _log.Debug($"[{code}] {candidates.Count} 条候选里没有番号匹配的，改用「{alternative}」再查一次。");
-        var secondary = await SearchOnceLoggedAsync(alternative, config, cancellationToken).ConfigureAwait(false);
-
-        var merged = Merge(candidates, secondary);
-
-        WarnIfEmpty(code, merged);
-        return merged;
-    }
-
-    /// <summary>
-    /// 片名检索两步走：
-    /// 1. 先查「片名 + 年份」或「剧名 + SxxExx」；
-    /// 2. 如果一条证据（片名 / 季集 / 年份）都对不上，去掉年份用纯片名再查一次，
-    ///    因为年份填错（或 Jellyfin 里挂了首映年而不是上映年）时第一次会全军覆没。
-    /// 两次都拿不到证据时保留全部候选：中文片名查出来往往是英文命名，
-    /// 硬要求片名匹配会让这类库永远选不到字幕。
-    /// </summary>
-    private async Task<IReadOnlyList<ThunderCandidate>> SearchByTitleAsync(
-        SearchTarget target,
-        PluginConfiguration config,
-        CancellationToken cancellationToken)
-    {
-        var candidates = await SearchOnceLoggedAsync(target.Query, config, cancellationToken).ConfigureAwait(false);
-        var narrowed = NarrowByTitle(candidates, target);
-        if (narrowed.Count > 0)
-        {
-            return narrowed;
-        }
-
-        // 剧集退化成「只查剧名」也有用：季包候选名字里带 SxxExx，仍能被证据匹配挑出来。
-        var fallbackQuery = target.Title!;
-
-        if (!string.Equals(target.Query, fallbackQuery, StringComparison.Ordinal))
-        {
-            _log.Debug($"[{target.Label}] 候选里没有片名/季集/年份匹配的，改用「{fallbackQuery}」再查一次。");
-            var secondary = await SearchOnceLoggedAsync(fallbackQuery, config, cancellationToken).ConfigureAwait(false);
-            narrowed = NarrowByTitle(secondary, target);
-            if (narrowed.Count > 0)
-            {
-                return narrowed;
-            }
-
-            candidates = Merge(candidates, secondary);
-        }
-
-        WarnIfEmpty(target.Label, candidates);
-
-        if (candidates.Count > 0)
-        {
-            _log.Warn($"[{target.Label}] {candidates.Count} 条候选里没有任何一条能用片名核对（常见于中文片名 + 英文命名候选），按质量择优，请留意是否对片。");
-        }
-
-        return candidates;
-    }
-
-    /// <summary>
-    /// 按证据强度收窄候选。只保留本次最强的那一档；一条都没有匹配时返回空，
-    /// 由调用方决定是否换个查询词重试。
-    /// </summary>
-    private static IReadOnlyList<ThunderCandidate> NarrowByTitle(IReadOnlyList<ThunderCandidate> candidates, SearchTarget target)
-    {
-        if (candidates.Count == 0)
-        {
-            return candidates;
-        }
-
-        var scored = candidates
-            .Select(candidate => (Candidate: candidate, Level: TitleMatch.Level(candidate.Name, target)))
-            .ToList();
-
-        var best = scored.Max(entry => entry.Level);
-        if (best == TitleMatchLevel.None)
-        {
-            return Array.Empty<ThunderCandidate>();
-        }
-
-        return scored
-            .Where(entry => entry.Level == best)
-            .Select(entry => entry.Candidate)
-            .ToArray();
-    }
-
-    private static IReadOnlyList<ThunderCandidate> Merge(
-        IReadOnlyList<ThunderCandidate> first,
-        IReadOnlyList<ThunderCandidate> second)
-    {
-        return first
-            .Concat(second)
-            .GroupBy(candidate => candidate.Uri.AbsoluteUri, StringComparer.Ordinal)
-            .Select(group => group.First())
-            .ToArray();
-    }
-
-    private async Task<IReadOnlyList<ThunderCandidate>> SearchOnceLoggedAsync(
-        string query,
-        PluginConfiguration config,
-        CancellationToken cancellationToken)
-    {
-        await ThrottleSearchAsync(config, cancellationToken).ConfigureAwait(false);
-        var search = await _thunder.SearchAsync(query, cancellationToken).ConfigureAwait(false);
-
-        if (search.Attempts > 1)
-        {
-            _log.Info($"[{query}] 上游前 {search.Attempts - 1} 次搜索返回空数据，第 {search.Attempts} 次拿到 {search.Candidates.Count} 条候选。");
-        }
-
-        return search.Candidates;
-    }
-
-    private void WarnIfEmpty(string label, IReadOnlyList<ThunderCandidate> candidates)
-    {
-        if (candidates.Count == 0)
-        {
-            _log.Warn($"[{label}] 上游接口连续 {ThunderClient.SearchAttempts} 次搜索都返回空数据，本次没有任何候选。稍后重试通常就恢复。");
-        }
-    }
-
-    private async Task ThrottleSearchAsync(PluginConfiguration config, CancellationToken cancellationToken)
-    {
-        if (config.RequestIntervalMs <= 0 || _lastSearchAt == DateTimeOffset.MinValue)
-        {
-            _lastSearchAt = DateTimeOffset.UtcNow;
-            return;
-        }
-
-        var wait = _lastSearchAt.AddMilliseconds(config.RequestIntervalMs) - DateTimeOffset.UtcNow;
-        if (wait > TimeSpan.Zero)
-        {
-            await Task.Delay(wait, cancellationToken).ConfigureAwait(false);
-        }
-
-        _lastSearchAt = DateTimeOffset.UtcNow;
     }
 }

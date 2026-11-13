@@ -6,176 +6,24 @@
 <body>
 <div id="ThunderSubtitleConfigPage" data-role="page" class="page type-interior pluginConfigurationPage"
      data-require="emby-input,emby-button,emby-select,emby-checkbox">
-    <!-- 样式必须写在 <body> 里：Jellyfin 前端加载插件页时只把 <body> 的子节点搬进 SPA 容器，
-         <head> 里的 <style> 会被整块丢弃（1.8.3.1 缩进不生效就是这个原因）。
-         同时这个 <style> 不能挪回 <head>，否则页面会退回成没有分组样式的裸排版。 -->
-    <style>
-        /* 每个大类用 fieldset + legend 画出独立外框，legend 压在边框线上，
-           与 Jellyfin 常见插件设置页的分组观感保持一致。 */
-        #ThunderSubtitleConfigPage .ts-group {
-            min-width: 0;
-            margin: 0 0 1.5rem;
-            padding: 0.2rem 1.1rem 1.2rem;
-            border: 1px solid rgba(127, 127, 127, 0.45);
-            border-radius: 0.35em;
-        }
-
-        #ThunderSubtitleConfigPage .ts-group > .ts-group-title {
-            width: auto;
-            margin-left: 0.2em;
-            padding: 0 0.5em;
-            font-size: 1.08em;
-            font-weight: 600;
-            line-height: 1.7;
-            color: inherit;
-        }
-
-        /* 组内不做整体缩进（用户偏好：全部贴齐组边框，紧凑些更好看）。
-           层级靠 legend 加粗 + 外框区分，不再靠左缩进。 */
-        #ThunderSubtitleConfigPage .ts-group-body {
-            padding-left: 0;
-        }
-
-        #ThunderSubtitleConfigPage .ts-group-body > :first-child {
-            margin-top: 0;
-        }
-
-        #ThunderSubtitleConfigPage .ts-group-body > :last-child {
-            margin-bottom: 0;
-        }
-
-        #ThunderSubtitleConfigPage .ts-libraries {
-            max-height: 18rem;
-            overflow-y: auto;
-            overflow-x: auto;
-            padding: 0.35rem 0.75rem;
-            border: 1px solid rgba(127, 127, 127, 0.25);
-            border-radius: 0.3em;
-        }
-
-        /* 影视库每行沿用官方 .checkboxContainer + .emby-checkbox-label 结构。
-           切勿再给 label 写内联 padding：那会覆盖 .emby-checkbox-label 自带的
-           padding-left: 2.4em，让绝对定位的复选框方框压住库名前两个字。
-
-           用 grid 固定四列：库名占第一列（可压缩），后面三列宽度固定。
-           这样无论哪个库、无论「自动择优」是否显示，三个下拉框的位置都不变；
-           早先的 flex 布局会让库名长度不同导致下拉框左右跳动。 */
-        #ThunderSubtitleConfigPage .ts-libraries .ts-lib-option {
-            margin: 0;
-            display: grid;
-            grid-template-columns: minmax(0, 1fr) 8.4rem 8.4rem 8.4rem;
-            align-items: center;
-            column-gap: 0.35rem;
-        }
-
-        #ThunderSubtitleConfigPage .ts-libraries .ts-lib-option .emby-checkbox-label {
-            display: flex;
-            align-items: center;
-            height: auto;
-            min-height: 2.2em;
-            min-width: 0;
-        }
-
-        /* 库名过长时省略，避免把固定列挤变形。 */
-        #ThunderSubtitleConfigPage .ts-libraries .ts-lib-option .emby-checkbox-label span {
-            overflow: hidden;
-            text-overflow: ellipsis;
-            white-space: nowrap;
-        }
-
-        /* display:contents 让三个 select 直接落进 grid 的第 2~4 列。 */
-        #ThunderSubtitleConfigPage .ts-lib-settings {
-            display: contents;
-        }
-
-        #ThunderSubtitleConfigPage .ts-lib-select {
-            /* color-scheme 让浏览器把原生下拉列表按深色渲染；
-               option 再显式给底色和前色，否则深色主题下是白字白底看不见。 */
-            color-scheme: dark;
-            background: rgba(127, 127, 127, 0.16);
-            color: inherit;
-            border: 1px solid rgba(127, 127, 127, 0.35);
-            border-radius: 0.25em;
-            padding: 0.2em 0.3em;
-            font-size: 0.88em;
-            width: 100%;
-            min-width: 0;
-        }
-
-        #ThunderSubtitleConfigPage .ts-lib-select option {
-            background-color: #1b1b1b;
-            color: #f2f2f2;
-        }
-
-        /* 「自动补全＝否」时「自动择优」用 visibility 隐藏，格子仍占位，
-           保证另外两个下拉框不会右移。 */
-        #ThunderSubtitleConfigPage .ts-lib-select.ts-lib-hidden {
-            visibility: hidden;
-        }
-
-        #ThunderSubtitleConfigPage .ts-hint {
-            color: var(--theme-secondary-color, #888);
-            font-size: 0.92em;
-            margin-top: 0.3rem;
-        }
-
-        #ThunderSubtitleConfigPage .ts-hint p {
-            margin: 0 0 0.35rem;
-        }
-
-        #ThunderSubtitleConfigPage .ts-hint ul {
-            margin: 0;
-            padding-left: 1.1rem;
-        }
-
-        #ThunderSubtitleConfigPage .ts-hint li {
-            margin: 0.2rem 0;
-            line-height: 1.45;
-        }
-
-        #ThunderSubtitleConfigPage .ts-actions {
-            display: flex;
-            flex-wrap: wrap;
-            gap: 0.6rem;
-            align-items: center;
-        }
-
-        #ThunderSubtitleConfigPage .ts-grid {
-            display: grid;
-
-            /* 固定两列。原先是 repeat(auto-fit, minmax(15rem, 1fr))，
-               宽屏下会自动挤进 3 个，页面上就出现「第一行 3 个、第二行 1 个」的孤行。
-               4 个设置项现在稳定排成 2×2。 */
-            grid-template-columns: repeat(2, minmax(0, 1fr));
-            gap: 0.5rem 1.25rem;
-        }
-
-        /* 只有一个设置项的行（供应商下拉）单独占满整行，
-           否则它会缩在左半边，右边留一块空白。 */
-        #ThunderSubtitleConfigPage .ts-grid.ts-grid-wide {
-            grid-template-columns: minmax(0, 1fr);
-        }
-
-        /* 窄屏（手机或半屏窗口）退回单列，两个输入框挤一行会窄到没法用。 */
-        @media (max-width: 45rem) {
-            #ThunderSubtitleConfigPage .ts-grid {
-                grid-template-columns: minmax(0, 1fr);
+    <!-- 样式注入到 document.head，而不是内联 <style>：
+         Jellyfin 前端加载插件页时只把 <body> 的子节点搬进 SPA 容器，
+         <head> 里的内容会被整块丢弃；把 <style> 留在 body 里虽然能用，
+         但样式会随页面反复插入、重复累积。注入 head 只做一次，且不占据本文件的行数。
+         注入脚本必须在 <body> 内，因为它要跟着这段 HTML 一起被搬进 SPA 容器。 -->
+    <script>
+        (function () {
+            if (document.getElementById('thunderSubtitleConfigStyle')) {
+                return;
             }
-        }
 
-        #ThunderSubtitleConfigPage .ts-status {
-            margin-top: 0.6rem;
-            padding: 0.6em 0.9em;
-            border-left: 0.35em solid #3aa655;
-            background: rgba(255, 255, 255, 0.06);
-            border-radius: 0.2em;
-            white-space: pre-line;
-        }
-
-        #ThunderSubtitleConfigPage .ts-status.ts-status-bad {
-            border-left-color: #cc3b3b;
-        }
-    </style>
+            var link = document.createElement('link');
+            link.id = 'thunderSubtitleConfigStyle';
+            link.rel = 'stylesheet';
+            link.href = ApiClient.getUrl('ThunderSubtitle/Config.css');
+            document.head.appendChild(link);
+        })();
+    </script>
     <div data-role="content">
         <div class="content-primary">
             <form id="ThunderSubtitleForm">
@@ -237,20 +85,31 @@
                 </fieldset>
 
                 <fieldset class="ts-group">
-                    <legend class="ts-group-title">下载与筛选</legend>
+                    <legend class="ts-group-title">字幕下载与筛选</legend>
                     <div class="ts-group-body">
-                        <div class="selectContainer">
-                            <label class="selectLabel" for="PreferredLanguage">优先语言</label>
-                            <select is="emby-select" id="PreferredLanguage" class="emby-select-withcolor">
-                                <option value="Simplified">简体中文（推荐）</option>
-                                <option value="Traditional">繁体中文</option>
-                            </select>
-                            <div class="fieldDescription">
-                                <strong>只有简体中文和繁体中文的候选会进入对比</strong>，英文、日文等直接丢弃。
-                                选中的这一种优先；没有合适的时才用另一种。
+                        <!-- 字段顺序 = 插件处理一部影片的时间先后：
+                             进入队列 → 搜索 → 下载 → 去重 → 决定送审名单 → 组装 prompt → 定档 → 缓存 → 日志。
+                             改动时请保持这个顺序，它比「按类型分组」更容易对照日志排查。 -->
+                        <p class="fieldDescription">
+                            <strong>语言偏好按影片类型自动决定，不需要手动选：</strong>
+                            非中文影视优先「简英双语」，其次纯简体，最后繁体；
+                            中文影视优先纯简体，其次纯繁体；日本AV 优先纯简体，其次纯繁体。
+                            英文、日文等非中文候选一律丢弃。
+                        </p>
+                        <div class="checkboxContainer checkboxContainer-withDescription">
+                            <label class="emby-checkbox-label">
+                                <input id="FillDespiteEmbeddedSubtitle" type="checkbox" is="emby-checkbox" />
+                                <span>含内嵌字幕的视频也补外挂字幕</span>
+                            </label>
+                            <div class="fieldDescription checkboxFieldDescription">
+                                默认不碰：内嵌字幕通常已经能看。打开后，即使视频本身带内嵌字幕，
+                                自动补全也会下载一份外挂中文字幕 —— 适合内嵌的是 PGS 图形字幕、
+                                想换成能搜索能调样式的那种，或者单纯觉得内嵌那份不够好的情况。
+                                手动搜索不受此开关影响。
                             </div>
                         </div>
 
+                        <h3 class="ts-subtitle">处理范围与下载</h3>
                         <div class="ts-grid">
                             <div class="inputContainer">
                                 <label class="inputLabel inputLabelUnfocused" for="MaxItemsPerRun">单次上限（条）</label>
@@ -260,7 +119,7 @@
                             <div class="inputContainer">
                                 <label class="inputLabel inputLabelUnfocused" for="MaxCandidates">最多候选数（条）</label>
                                 <input is="emby-input" id="MaxCandidates" type="number" min="1" max="100" step="1" />
-                                <div class="fieldDescription">每部影片最多下载多少条候选来比较体积。</div>
+                                <div class="fieldDescription">每部影片最多下载多少条候选来比较。</div>
                             </div>
                             <div class="inputContainer">
                                 <label class="inputLabel inputLabelUnfocused" for="RequestIntervalMs">请求间隔（毫秒）</label>
@@ -277,36 +136,145 @@
                                 <input is="emby-input" id="ItemBudgetSeconds" type="number" min="20" max="600" step="10" />
                                 <div class="fieldDescription">到点就用手上已下载的候选排序，不再等慢 CDN。</div>
                             </div>
-                            <div class="selectContainer">
-                                <label class="selectLabel" for="LogLevel">日志级别</label>
-                                <select is="emby-select" id="LogLevel" class="emby-select-withcolor">
-                                    <option value="Error">只记录错误</option>
-                                    <option value="Warning">错误 + 警告</option>
-                                    <option value="Information">常规（推荐）</option>
-                                    <option value="Debug">调试（逐条候选）</option>
-                                </select>
-                                <div class="fieldDescription">日志写入 Jellyfin 服务器日志，时间戳为北京时间。</div>
+                        </div>
+
+                        <h3 class="ts-subtitle">候选筛选</h3>
+                        <p class="fieldDescription">
+                            下载完先<strong>近似去重</strong>（同一份机翻被不同站点转码、改名、换标点后
+                            文件哈希完全不同，精确去重拦不住，它们会一起挤进送审名额），
+                            再淘汰<strong>有明显硬伤</strong>的候选（含中文率过低、满屏未译标注、
+                            中间大段空白、断句粗到没法用），最后才决定送审名单。
+                        </p>
+                        <div class="ts-grid">
+                            <div class="inputContainer">
+                                <label class="inputLabel inputLabelUnfocused" for="NearDuplicateThreshold">
+                                    近似重复阈值
+                                </label>
+                                <input is="emby-input" id="NearDuplicateThreshold" type="number" min="0.8" max="1" step="0.01" />
+                                <div class="fieldDescription">
+                                    0.95（默认）比较稳：0.99 会漏掉改标点的版本，0.90 会把「同一影片的不同翻译」误合并。
+                                    填 1 表示关闭。
+                                </div>
                             </div>
+                            <div class="inputContainer">
+                                <label class="inputLabel inputLabelUnfocused" for="AiPerTier">每档评审份数</label>
+                                <input is="emby-input" id="AiPerTier" type="number" min="1" max="6" step="1" />
+                                <div class="fieldDescription">
+                                    每种语言（简体 / 繁体 / 简英双语）最多挑几份送进同一个请求，默认 5，总数不超过 12 份。
+                                    首选语言凑不满时，余量会让给其他语言档位，尽量多给模型几份做横向比较。
+                                    <strong>台词字数不参与排序</strong> —— 双语字幕夹着整行英文，字数天然翻倍，
+                                    按字数排会把真正干净的纯中文台本挤出送审名单。
+                                </div>
+                            </div>
+                        </div>
+
+                        <h3 class="ts-subtitle">AI 送审</h3>
+                        <p class="fieldDescription">
+                            送审的不是孤立单句，而是<strong>按时间轴对齐的若干连续片段</strong>：
+                            同一时刻的所有候选放在一起，模型才能判断「这句是不是联系上下文翻的」。
+                            片段越多越全面，也越费 token。
+                        </p>
+                        <div class="ts-grid">
+                            <div class="inputContainer">
+                                <label class="inputLabel inputLabelUnfocused" for="AiTimeoutSeconds">超时（秒）</label>
+                                <input is="emby-input" id="AiTimeoutSeconds" type="number" min="10" max="300" step="5" />
+                                <div class="fieldDescription">超过这个时间就放弃 AI、按本地规则排序。默认 100 秒。</div>
+                            </div>
+                            <div class="inputContainer">
+                                <label class="inputLabel inputLabelUnfocused" for="AiAlignedSegments">片段数</label>
+                                <input is="emby-input" id="AiAlignedSegments" type="number" min="3" max="10" step="1" />
+                                <div class="fieldDescription">默认 6，覆盖片长的 12%～90%。</div>
+                            </div>
+                            <div class="inputContainer">
+                                <label class="inputLabel inputLabelUnfocused" for="AiAlignedCues">每段台词条数</label>
+                                <input is="emby-input" id="AiAlignedCues" type="number" min="4" max="20" step="1" />
+                                <div class="fieldDescription">非中文影视与日本AV 用这个值，默认 8。</div>
+                            </div>
+                            <div class="inputContainer">
+                                <label class="inputLabel inputLabelUnfocused" for="AiCjkAlignedCues">中文影视每段条数</label>
+                                <input is="emby-input" id="AiCjkAlignedCues" type="number" min="4" max="20" step="1" />
+                                <div class="fieldDescription">
+                                    错别字是稀疏事件，抽样要比另外两类更密。默认 10。
+                                </div>
+                            </div>
+                        </div>
+
+                        <h3 class="ts-subtitle">质量门槛</h3>
+                        <div class="ts-grid">
+                            <div class="inputContainer">
+                                <label class="inputLabel inputLabelUnfocused" for="AiSimplifiedAcceptScore">
+                                    日本AV 简体合格分
+                                </label>
+                                <input is="emby-input" id="AiSimplifiedAcceptScore" type="number" min="0" max="100" step="5" />
+                                <div class="fieldDescription">
+                                    简体档最高分低于这个值时，若繁体档分数更高就改用繁体。填 0 关闭降级。
+                                    其余类型的影片忽略此项。
+                                </div>
+                            </div>
+                            <div class="inputContainer">
+                                <label class="inputLabel inputLabelUnfocused" for="AiTierOverrideGap">
+                                    非中文影视跨档分差
+                                </label>
+                                <input is="emby-input" id="AiTierOverrideGap" type="number" min="0" max="40" step="1" />
+                                <div class="fieldDescription">
+                                    非中文影视默认「有简英双语就用双语」。若纯简体 / 繁体版本高出这个分数，
+                                    就改用分数更高的那份（只提这一份，不整体提升档位）。默认 8，填 0 关闭。
+                                </div>
+                            </div>
+                            <div class="inputContainer">
+                                <label class="inputLabel inputLabelUnfocused" for="AiTypoWarnRate">
+                                    中文错别字告警（处/千字）
+                                </label>
+                                <input is="emby-input" id="AiTypoWarnRate" type="number" min="0" max="20" step="0.5" />
+                                <div class="fieldDescription">只写日志提醒，不参与排序，更不会淘汰字幕。</div>
+                            </div>
+                        </div>
+
+                        <h3 class="ts-subtitle">评分缓存</h3>
+                        <p class="fieldDescription">
+                            「自动补全」和「自动择优」会搜到同一批候选，没有缓存就会发两次一模一样的请求。
+                            缓存键包含模型名与提示词版本：换模型或改了提示词，旧分数自动失效。
+                        </p>
+                        <div class="checkboxContainer checkboxContainer-withDescription">
+                            <label class="emby-checkbox-label">
+                                <input id="AiCacheEnabled" type="checkbox" is="emby-checkbox" />
+                                <span>缓存 AI 评分</span>
+                            </label>
+                        </div>
+                        <div class="inputContainer">
+                            <label class="inputLabel inputLabelUnfocused" for="AiCacheDays">缓存有效期（天）</label>
+                            <input is="emby-input" id="AiCacheDays" type="number" min="1" max="365" step="1" />
+                        </div>
+
+                        <div class="selectContainer">
+                            <label class="selectLabel" for="LogLevel">日志级别</label>
+                            <select is="emby-select" id="LogLevel" class="emby-select-withcolor">
+                                <option value="Error">只记录错误</option>
+                                <option value="Warning">错误 + 警告</option>
+                                <option value="Information">常规（推荐）</option>
+                                <option value="Debug">调试（逐条候选）</option>
+                            </select>
+                            <div class="fieldDescription">日志写入 Jellyfin 服务器日志，时间戳为北京时间。</div>
                         </div>
                     </div>
                 </fieldset>
 
                 <fieldset class="ts-group">
-                    <legend class="ts-group-title">AI 评审（可选）</legend>
+                    <legend class="ts-group-title">AI 接口</legend>
                     <div class="ts-group-body">
                         <p class="fieldDescription">
-                            按台词字符数排出的前几名，再让大模型横向比较一次：机翻往往<strong>更长</strong>
-                            （每个语气词都被逐字翻出来），但读起来驴唇不对马嘴。开启后 AI 只负责在候选之间排序，
-                            连接失败或返回异常时<strong>自动回退</strong>到字符数排序，不影响字幕下载。
+                            只用于把候选字幕的译文放在一起横向比较，挑出读起来最像中文的那份。
+                            字幕文件、视频文件名、媒体库内容都不会被修改。
                         </p>
 
                         <div class="checkboxContainer checkboxContainer-withDescription">
                             <label class="emby-checkbox-label">
                                 <input id="AiEnabled" type="checkbox" is="emby-checkbox" />
-                                <span>启用 AI 评审</span>
+                                <span>启用 AI</span>
                             </label>
                             <div class="fieldDescription checkboxFieldDescription">
-                                每部影片会调用一次模型（前 N 名放在同一个请求里比较）。
+                                关闭后「自动补全」只按本地规则排序（健康度、条数偏离度、名称关键词），
+                                不会调用任何接口。
                             </div>
                         </div>
 
@@ -332,31 +300,24 @@
                             </div>
                         </div>
 
-                        <div class="ts-grid">
-                            <div class="inputContainer">
-                                <label class="inputLabel inputLabelUnfocused" for="AiModel">模型名</label>
-                                <input is="emby-input" id="AiModel" type="text" placeholder="deepseek-v4.1-flash" />
-                                <div class="fieldDescription">Open Code 可用：deepseek-v4.1-flash、glm-5.3-flash、kimi-k3 等。</div>
-                            </div>
-                            <div class="inputContainer">
-                                <label class="inputLabel inputLabelUnfocused" for="AiApiKey">API Key</label>
-                                <input is="emby-input" id="AiApiKey" type="password" autocomplete="new-password" />
-                                <div class="fieldDescription">保存在服务器插件配置里，不会写进日志。</div>
-                            </div>
-                            <div class="inputContainer">
-                                <label class="inputLabel inputLabelUnfocused" for="AiPerTier">每档评审份数</label>
-                                <input is="emby-input" id="AiPerTier" type="number" min="1" max="3" step="1" />
-                                <div class="fieldDescription">
-                                    候选先按<strong>条数</strong>分档（相差 2% 以内算同一档，例如 500 条和 504 条），
-                                    取条数最多的前 3 档，每档再挑几份送进同一个请求。默认 2，即最多 6 份。
-                                    条数最多的那批常常是同一份机翻的不同转码，只取前 N 名会把人翻挤掉。
-                                </div>
-                            </div>
-                            <div class="inputContainer">
-                                <label class="inputLabel inputLabelUnfocused" for="AiTimeoutSeconds">超时（秒）</label>
-                                <input is="emby-input" id="AiTimeoutSeconds" type="number" min="10" max="300" step="5" />
-                            </div>
+                        <div class="inputContainer">
+                            <label class="inputLabel inputLabelUnfocused" for="AiApiKey">API Key</label>
+                            <input is="emby-input" id="AiApiKey" type="password" autocomplete="new-password" />
+                            <div class="fieldDescription">只保存在服务器插件配置里，不会写进日志。</div>
                         </div>
+
+                        <div class="inputContainer">
+                            <label class="inputLabel inputLabelUnfocused" for="AiModel">模型</label>
+                            <input is="emby-input" id="AiModel" type="text" placeholder="deepseek-v4.1-flash" />
+                            <div class="fieldDescription">Open Code 可用：deepseek-v4.1-flash、glm-5.3-flash、kimi-k3 等。</div>
+                        </div>
+
+                        <div class="ts-actions" style="margin-top: 0.9rem;">
+                            <button is="emby-button" type="button" id="TestAi" class="raised">
+                                <span>测试连接</span>
+                            </button>
+                        </div>
+                        <div id="AiTestStatus" class="fieldDescription"></div>
                     </div>
                 </fieldset>
 
@@ -619,14 +580,24 @@
                     byId('DownloadConcurrency').value = cfg.DownloadConcurrency || 4;
                     byId('ItemBudgetSeconds').value = cfg.ItemBudgetSeconds || 90;
                     byId('LogLevel').value = cfg.LogLevel || 'Information';
-                    byId('PreferredLanguage').value = cfg.PreferredLanguage || 'Simplified';
+                    byId('FillDespiteEmbeddedSubtitle').checked = cfg.FillDespiteEmbeddedSubtitle === true;
                     byId('AiEnabled').checked = cfg.AiEnabled === true;
                     byId('AiProvider').value = cfg.AiProvider || 'OpenCode';
                     byId('AiBaseUrl').value = cfg.AiBaseUrl || '';
                     byId('AiModel').value = cfg.AiModel || 'deepseek-v4.1-flash';
                     byId('AiApiKey').value = cfg.AiApiKey || '';
-                    byId('AiPerTier').value = cfg.AiPerTier || 2;
-                    byId('AiTimeoutSeconds').value = cfg.AiTimeoutSeconds || 60;
+                    byId('AiPerTier').value = cfg.AiPerTier || 5;
+                    byId('AiTimeoutSeconds').value = cfg.AiTimeoutSeconds || 100;
+                    byId('AiAlignedSegments').value = cfg.AiAlignedSegments || 6;
+                    byId('AiAlignedCues').value = cfg.AiAlignedCues || 8;
+                    byId('AiCjkAlignedCues').value = cfg.AiCjkAlignedCues || 10;
+                    byId('AiSimplifiedAcceptScore').value = cfg.AiSimplifiedAcceptScore != null ? cfg.AiSimplifiedAcceptScore : 60;
+                    byId('AiTierOverrideGap').value = cfg.AiTierOverrideGap != null ? cfg.AiTierOverrideGap : 8;
+                    byId('AiTypoWarnRate').value = cfg.AiTypoWarnRate != null ? cfg.AiTypoWarnRate : 3;
+                    byId('AiCacheEnabled').checked = cfg.AiCacheEnabled !== false;
+                    byId('AiCacheDays').value = cfg.AiCacheDays || 30;
+                    byId('NearDuplicateThreshold').value =
+                        cfg.NearDuplicateThreshold != null ? cfg.NearDuplicateThreshold : 0.95;
                     syncProviderRows();
 
                     return ApiClient.getJSON(ApiClient.getUrl('Library/VirtualFolders')).then(function (libraries) {
@@ -698,7 +669,7 @@
                     cfg.ItemBudgetSeconds = isNaN(itemBudget) ? 90 : Math.min(600, Math.max(20, itemBudget));
 
                     cfg.LogLevel = byId('LogLevel').value || 'Information';
-                    cfg.PreferredLanguage = byId('PreferredLanguage').value || 'Simplified';
+                    cfg.FillDespiteEmbeddedSubtitle = byId('FillDespiteEmbeddedSubtitle').checked;
 
                     cfg.AiEnabled = byId('AiEnabled').checked;
                     cfg.AiProvider = byId('AiProvider').value || 'OpenCode';
@@ -707,10 +678,36 @@
                     cfg.AiModel = byId('AiModel').value.trim() || 'deepseek-v4.1-flash';
 
                     var perTier = parseInt(byId('AiPerTier').value, 10);
-                    cfg.AiPerTier = isNaN(perTier) ? 2 : Math.min(3, Math.max(1, perTier));
+                    cfg.AiPerTier = isNaN(perTier) ? 5 : Math.min(6, Math.max(1, perTier));
 
                     var timeout = parseInt(byId('AiTimeoutSeconds').value, 10);
-                    cfg.AiTimeoutSeconds = isNaN(timeout) ? 60 : Math.min(300, Math.max(10, timeout));
+                    cfg.AiTimeoutSeconds = isNaN(timeout) ? 100 : Math.min(300, Math.max(10, timeout));
+
+                    var segments = parseInt(byId('AiAlignedSegments').value, 10);
+                    cfg.AiAlignedSegments = isNaN(segments) ? 6 : Math.min(10, Math.max(3, segments));
+
+                    var cues = parseInt(byId('AiAlignedCues').value, 10);
+                    cfg.AiAlignedCues = isNaN(cues) ? 8 : Math.min(20, Math.max(4, cues));
+
+                    var cjkCues = parseInt(byId('AiCjkAlignedCues').value, 10);
+                    cfg.AiCjkAlignedCues = isNaN(cjkCues) ? 10 : Math.min(20, Math.max(4, cjkCues));
+
+                    var acceptScore = parseInt(byId('AiSimplifiedAcceptScore').value, 10);
+                    cfg.AiSimplifiedAcceptScore = isNaN(acceptScore) ? 60 : Math.min(100, Math.max(0, acceptScore));
+
+                    var tierGap = parseInt(byId('AiTierOverrideGap').value, 10);
+                    cfg.AiTierOverrideGap = isNaN(tierGap) ? 8 : Math.min(40, Math.max(0, tierGap));
+
+                    var typoRate = parseFloat(byId('AiTypoWarnRate').value);
+                    cfg.AiTypoWarnRate = isNaN(typoRate) ? 3 : Math.min(20, Math.max(0, typoRate));
+
+                    cfg.AiCacheEnabled = byId('AiCacheEnabled').checked;
+
+                    var cacheDays = parseInt(byId('AiCacheDays').value, 10);
+                    cfg.AiCacheDays = isNaN(cacheDays) ? 30 : Math.min(365, Math.max(1, cacheDays));
+
+                    var threshold = parseFloat(byId('NearDuplicateThreshold').value);
+                    cfg.NearDuplicateThreshold = isNaN(threshold) ? 0.95 : Math.min(1, Math.max(0.8, threshold));
 
                     return ApiClient.updatePluginConfiguration(PluginId, cfg).then(function (result) {
                         Dashboard.processPluginConfigurationUpdateResult(result);
@@ -730,6 +727,43 @@
                 }, function () {
                     byId('PreviewCacheStatus').textContent = '清空失败，请确认当前账号有管理员权限。';
                 }).finally(function () {
+                    Dashboard.hideLoadingMsg();
+                });
+            }
+
+            // 测试连接：先把表单存下来，再让服务器代发一条最小请求。
+            // 必须「先保存」——服务器读的是已落盘的配置，不保存的话刚改的 Key / 模型测的还是旧值。
+            // 也不能让浏览器直接连模型服务：API Key 只存在服务器上，跨域也会被拦。
+            function testAi() {
+                var box = byId('AiTestStatus');
+                var button = byId('TestAi');
+                var saved = false;
+
+                Dashboard.showLoadingMsg();
+                button.disabled = true;
+                box.className = 'fieldDescription';
+                box.textContent = '正在保存并测试…';
+
+                return save(null).then(function () {
+                    saved = true;
+                    Dashboard.showLoadingMsg();
+                    return ApiClient.ajax({
+                        type: 'POST',
+                        url: ApiClient.getUrl('ThunderSubtitle/AiTest'),
+                        dataType: 'json'
+                    });
+                }).then(function (result) {
+                    var suffix = result.elapsedMs ? '（' + result.elapsedMs + ' ms）' : '';
+                    box.textContent = (result.message || '没有返回信息。') + suffix;
+                    box.className = 'fieldDescription' + (result.ok ? '' : ' ts-status-bad');
+                }, function (xhr) {
+                    var text = saved
+                        ? ((xhr && xhr.responseText) ? xhr.responseText : '未知错误')
+                        : '保存失败，请先检查表单里的数值。';
+                    box.textContent = saved ? ('测试失败：' + text) : text;
+                    box.className = 'fieldDescription ts-status-bad';
+                }).finally(function () {
+                    button.disabled = false;
                     Dashboard.hideLoadingMsg();
                 });
             }
@@ -756,6 +790,7 @@
                 runTask(RepickTaskKey);
             });
             document.querySelector('#ClearPreviewCache').addEventListener('click', clearPreviewCache);
+            document.querySelector('#TestAi').addEventListener('click', testAi);
         })();
     </script>
 </div>

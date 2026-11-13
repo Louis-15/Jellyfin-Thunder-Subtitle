@@ -5,66 +5,19 @@ using System.Net.Http;
 using System.Net.Http.Headers;
 using System.Text;
 using System.Text.Json;
-using System.Text.Json.Serialization;
+using Microsoft.Extensions.Logging;
 
 namespace Jellyfin.Plugin.ThunderSubtitle.Core;
 
-/// <summary>Connection settings for the OpenAI-compatible endpoint.</summary>
-/// <param name="BaseUrl">API root, e.g. <c>https://opencode.ai/inference/go/openai/v1</c>.</param>
-/// <param name="ApiKey">Bearer token; empty for a local server that needs none.</param>
-/// <param name="Model">Model name.</param>
-/// <param name="SampleCues">How many cue lines to sample per candidate.</param>
-/// <param name="MaxCharsPerCandidate">Hard cap on sampled characters per candidate.</param>
-/// <param name="TimeoutSeconds">Per-request timeout.</param>
-/// <param name="SessionId">
-/// Stable id sent as <c>x-opencode-session</c>. OpenCode Go requires it and uses it for
-/// routing and prompt caching; other providers ignore the header, so it is only sent
-/// when the built-in provider is selected.
-/// </param>
-/// <param name="UseSessionHeader">Whether to send the <c>x-opencode-session</c> header.</param>
-public sealed record AiSettings(
-    string BaseUrl,
-    string ApiKey,
-    string Model,
-    int SampleCues,
-    int MaxCharsPerCandidate,
-    int TimeoutSeconds,
-    string SessionId = "",
-    bool UseSessionHeader = false)
-{
-    /// <summary>Creates settings from the plugin configuration.</summary>
-    /// <param name="configuration">The plugin configuration.</param>
-    /// <param name="sessionId">Stable id for this conversation.</param>
-    /// <returns>The settings.</returns>
-    public static AiSettings From(PluginConfiguration configuration, string sessionId = "")
-    {
-        return new AiSettings(
-            configuration.ApiRoot,
-            configuration.AiApiKey,
-            configuration.AiModel,
-            configuration.AiSampleCues,
-            configuration.AiMaxCharsPerCandidate,
-            configuration.AiTimeoutSeconds,
-            sessionId,
-            configuration.IsOpenCodeProvider);
-    }
-}
-
 /// <summary>
-/// Asks a chat model which of the largest candidates reads like a real translation.
-/// Size alone cannot tell a complete human translation from a verbosely wrong machine
-/// one, and machine output is often <em>longer</em>: every filler word is translated
-/// literally. The model only ever reorders a shortlist; anything unexpected falls back
-/// to the deterministic ranking, so a broken endpoint can never stop a subtitle being
-/// written.
+/// Asks a chat model which of the sampled candidates reads best.
+///
+/// 三类影片走三套提示词（见 <see cref="AiPrompts"/>），但机制相同：
+/// 把候选按时间轴对齐成若干连续片段，放进同一个请求横向对比，模型只负责打分。
+/// 任何异常都回退到确定性排序，绝不阻断写字幕。
 /// </summary>
 public sealed class AiSubtitleJudge
 {
-    private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web)
-    {
-        PropertyNameCaseInsensitive = true
-    };
-
     private static readonly HttpClient Http = new(new SocketsHttpHandler
     {
         AllowAutoRedirect = true,
@@ -74,29 +27,35 @@ public sealed class AiSubtitleJudge
         Timeout = Timeout.InfiniteTimeSpan
     };
 
+    /// <summary>锚点与最近 cue 的最大偏差。超过它说明这份候选不覆盖该时间位置。</summary>
+    internal static readonly TimeSpan SegmentTolerance = TimeSpan.FromSeconds(60);
+
     private readonly PluginLog _log;
 
     /// <summary>Initializes a new instance of the <see cref="AiSubtitleJudge"/> class.</summary>
     /// <param name="logger">Logger.</param>
-    public AiSubtitleJudge(Microsoft.Extensions.Logging.ILogger<AiSubtitleJudge> logger)
+    public AiSubtitleJudge(ILogger<AiSubtitleJudge> logger)
     {
         _log = new PluginLog(logger);
     }
 
     /// <summary>Judges a shortlist of candidates.</summary>
-    /// <param name="target">The search target; its label and mode give the model context.</param>
+    /// <param name="kind">The media kind, which selects the prompt.</param>
+    /// <param name="brief">影片元数据卡，可为空。</param>
     /// <param name="shortlist">Candidates to compare, best-by-volume first.</param>
-    /// <param name="settings">Endpoint settings.</param>
-    /// <param name="preferred">The Chinese form the user prefers.</param>
+    /// <param name="settings">Endpoint and sampling settings.</param>
+    /// <param name="extraInstruction">用户手动搜索时输入的额外要求。</param>
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>The verdicts keyed by candidate id, or <c>null</c> when the call failed.</returns>
     public async Task<IReadOnlyDictionary<int, AiVerdict>?> JudgeAsync(
-        SearchTarget target,
+        MediaKind kind,
+        MediaBrief? brief,
         IReadOnlyList<SubtitlePick> shortlist,
         AiSettings settings,
-        SubtitleLanguage preferred,
+        string? extraInstruction,
         CancellationToken cancellationToken)
     {
+        // 只有一份候选时排序本身就是答案，白花一次请求。
         if (shortlist.Count < 2)
         {
             return null;
@@ -114,8 +73,29 @@ public sealed class AiSubtitleJudge
             return null;
         }
 
-        var request = BuildRequest(target, shortlist, settings, preferred);
-        var body = JsonSerializer.Serialize(request, JsonOptions);
+        var composed = AiPromptBuilder.Compose(kind, brief, shortlist, settings, extraInstruction, SegmentTolerance);
+        if (composed is null)
+        {
+            _log.Warn("AI 评审跳过：抽不出可用的台词片段（候选可能没有可解析的字幕结构）。");
+            return null;
+        }
+
+        var request = ToRequest(kind, composed, settings);
+        var body = JsonSerializer.Serialize(request, AiChat.Json);
+        _log.Debug($"[AI] 影片类型 {MediaKindResolver.DisplayName(kind)}，送审 {shortlist.Count} 份，"
+                   + $"prompt {composed.UserPrompt.Length} 字符 / {composed.Segments.Count} 段。");
+
+        // 落点日志是人工核对 AI 判断是否离谱的主要抓手：
+        // 同一片段里所有候选的时间偏差应该都很小，出现「—」说明那份字幕不覆盖该位置。
+        foreach (var segment in composed.Segments)
+        {
+            var landing = string.Join(
+                "  ",
+                segment.Candidates.Select(candidate => candidate.Lines.Count == 0
+                    ? $"#{candidate.PickIndex}—"
+                    : $"#{candidate.PickIndex}{FormatOffset(candidate.OffsetSeconds)}"));
+            _log.Debug($"  片段 {segment.Index} 锚点 {segment.Anchor:hh\\:mm\\:ss} → {landing}");
+        }
 
         using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         timeout.CancelAfter(TimeSpan.FromSeconds(Math.Clamp(settings.TimeoutSeconds, 10, 300)));
@@ -150,14 +130,23 @@ public sealed class AiSubtitleJudge
 
             if (!response.IsSuccessStatusCode)
             {
-                _log.Warn($"AI 评审失败：HTTP {(int)response.StatusCode} - {Truncate(payload, 200)}");
+                _log.Warn($"AI 评审失败：HTTP {(int)response.StatusCode} - {AiChat.Truncate(payload, 200)}");
                 return null;
             }
 
-            var verdicts = ParseVerdicts(payload, shortlist.Count);
+            var verdicts = AiReplyParser.Parse(payload, shortlist.Count, shortlist);
             if (verdicts is null)
             {
-                _log.Warn($"AI 评审失败：返回内容无法解析 - {Truncate(payload, 200)}");
+                _log.Warn($"AI 评审失败：返回内容无法解析 - {AiChat.Truncate(payload, 200)}");
+                return null;
+            }
+
+            foreach (var verdict in verdicts.Values.OrderBy(value => value.Id))
+            {
+                // ✓ 原句核对通过 / ✗ 引了原句但核对不上 / · 没引用
+                var flag = verdict.EvidenceVerified ? "✓" : (verdict.Evidence.Length > 0 ? "✗" : "·");
+                var evidence = verdict.Evidence.Length > 0 ? $"「{verdict.Evidence}」" : string.Empty;
+                _log.Debug($"  AI #{verdict.Id} {verdict.Score:F0} 分（{verdict.EffectiveSource}）{flag}{evidence} {verdict.Reason}");
             }
 
             return verdicts;
@@ -168,12 +157,12 @@ public sealed class AiSubtitleJudge
         }
         catch (OperationCanceledException)
         {
-            _log.Warn($"AI 评审超时（{settings.TimeoutSeconds} 秒），改用字符数排序。");
+            _log.Warn($"AI 评审超时（{settings.TimeoutSeconds} 秒），改用确定性排序。");
             return null;
         }
         catch (HttpRequestException ex)
         {
-            _log.Warn($"AI 评审失败：{ex.Message}，改用字符数排序。");
+            _log.Warn($"AI 评审失败：{ex.Message}，改用确定性排序。");
             return null;
         }
         catch (JsonException ex)
@@ -184,200 +173,53 @@ public sealed class AiSubtitleJudge
     }
 
     /// <summary>Builds the chat completion body. Exposed for tests.</summary>
-    /// <param name="target">The search target.</param>
+    /// <param name="kind">The media kind.</param>
+    /// <param name="brief">影片元数据卡，可为空。</param>
     /// <param name="shortlist">Candidates to compare.</param>
-    /// <param name="settings">Endpoint settings.</param>
-    /// <param name="preferred">The Chinese form the user prefers.</param>
-    /// <returns>The request payload.</returns>
-    public static ChatRequest BuildRequest(
-        SearchTarget target,
+    /// <param name="settings">Endpoint and sampling settings.</param>
+    /// <param name="extraInstruction">用户额外要求。</param>
+    /// <returns>The request payload, or <c>null</c> when nothing could be sampled.</returns>
+    public static ChatRequest? BuildRequest(
+        MediaKind kind,
+        MediaBrief? brief,
         IReadOnlyList<SubtitlePick> shortlist,
         AiSettings settings,
-        SubtitleLanguage preferred = SubtitleLanguage.SimplifiedChinese)
+        string? extraInstruction)
     {
-        var prompt = new StringBuilder();
-        prompt.Append(target.Mode == SubtitleSearchMode.Code ? "番号：" : "片名：").Append(target.Label).Append('\n');
-        prompt.Append("用户偏好：").Append(preferred == SubtitleLanguage.TraditionalChinese ? "繁体中文" : "简体中文")
-            .Append("（同分时优先这一种）\n");
-        prompt.Append("下面是同一部影片的 ").Append(shortlist.Count).Append(" 份中文字幕候选，每份只抽取了部分台词，已去掉时间轴，按原片顺序排列。\n");
+        var composed = AiPromptBuilder.Compose(kind, brief, shortlist, settings, extraInstruction, SegmentTolerance);
+        return composed is null ? null : ToRequest(kind, composed, settings);
+    }
 
-        for (var index = 0; index < shortlist.Count; index++)
-        {
-            var pick = shortlist[index];
-            prompt.Append("\n=== 候选 ").Append(index + 1).Append(" ===\n");
-            prompt.Append("语言：").Append(pick.Language == SubtitleLanguage.TraditionalChinese ? "繁体中文" : "简体中文")
-                .Append("，总条数 ").Append(pick.CueCount).Append("，台词 ").Append(pick.ContentChars).Append(" 字\n");
-            prompt.Append(BuildSample(pick, settings.SampleCues, settings.MaxCharsPerCandidate));
-        }
-
+    private static ChatRequest ToRequest(MediaKind kind, JudgedPrompt composed, AiSettings settings)
+    {
         return new ChatRequest
         {
             Model = settings.Model,
             Temperature = 0,
             Messages =
             [
-                new ChatMessage { Role = "system", Content = SystemPrompt },
-                new ChatMessage { Role = "user", Content = prompt.ToString() }
+                new ChatMessage { Role = "system", Content = AiPrompts.System(kind) },
+                new ChatMessage { Role = "user", Content = composed.UserPrompt }
             ]
         };
     }
 
-    /// <summary>Parses the model reply into verdicts.</summary>
-    /// <param name="payload">The raw HTTP body.</param>
-    /// <param name="expectedCount">How many candidates were sent.</param>
-    /// <returns>The verdicts, or <c>null</c> when the reply is unusable.</returns>
-    public static IReadOnlyDictionary<int, AiVerdict>? ParseVerdicts(string payload, int expectedCount)
+    private static string FormatOffset(double seconds)
     {
-        if (string.IsNullOrWhiteSpace(payload))
-        {
-            return null;
-        }
-
-        string? content;
-        try
-        {
-            using var document = JsonDocument.Parse(payload);
-            content = ExtractAssistantContent(document.RootElement);
-        }
-        catch (JsonException)
-        {
-            return null;
-        }
-
-        if (content is null)
-        {
-            return null;
-        }
-
-        var json = ExtractJsonObject(content);
-        if (json is null)
-        {
-            return null;
-        }
-
-        Reply? reply;
-        try
-        {
-            reply = JsonSerializer.Deserialize<Reply>(json, JsonOptions);
-        }
-        catch (JsonException)
-        {
-            return null;
-        }
-
-        var items = reply?.Candidates;
-        if (items is null || items.Length != expectedCount)
-        {
-            return null;
-        }
-
-        var verdicts = new Dictionary<int, AiVerdict>();
-        foreach (var item in items)
-        {
-            if (item.Id < 1 || item.Id > expectedCount || verdicts.ContainsKey(item.Id))
-            {
-                return null;
-            }
-
-            verdicts[item.Id] = new AiVerdict(
-                item.Id,
-                Math.Clamp(item.Score, 0, 100),
-                item.Machine,
-                item.Reason ?? string.Empty);
-        }
-
-        return verdicts.Count == expectedCount ? verdicts : null;
+        return double.IsNaN(seconds) ? "?" : $"{(seconds >= 0 ? "+" : string.Empty)}{seconds:F0}s";
     }
 
-    private const string SystemPrompt =
-        "你是字幕质量审核员。用户给你同一部影片的若干份中文字幕候选，每份只抽取了部分对白。\n"
-        + "请判断每一份是【人工翻译】还是【机器翻译或自动语音识别转写】，并给出 0-100 的可用性评分（越高越可用）。\n"
-        + "判断依据：\n"
-        + "1. 人工翻译：中文口语自然、符合语境；人称代词前后一致；语气词、呻吟声处理得当（不会逐字硬译）；断句符合说话节奏；专有名词前后一致。\n"
-        + "2. 机器翻译或 ASR：字面直译、语序生硬；他/她/它乱用；把「あぁ」「ん」这类语气词逐字翻成没有意义的字；句子不通顺、前后矛盾；同一句话重复出现；成语或俗语被直译成怪话；明显是听不懂硬猜。\n"
-        + "3. 两份都像人工翻译时，给信息更完整、断句更贴合对话节奏的那份更高分。\n"
-        + "严格只输出 JSON，不要解释，不要 markdown 代码块，不要多余文字。格式：\n"
-        + "{\"candidates\":[{\"id\":1,\"score\":85,\"machine\":false,\"reason\":\"不超过20字\"}]}";
-
-    private static string BuildSample(SubtitlePick pick, int sampleCues, int maxChars)
-    {
-        var cues = pick.Cues();
-        if (cues.Count == 0)
-        {
-            return Truncate(SubtitleContent.StripMarkup(pick.Text), maxChars) + "\n";
-        }
-
-        var count = Math.Clamp(sampleCues, 4, 80);
-        var take = Math.Min(count, cues.Count);
-        var builder = new StringBuilder();
-        var chars = 0;
-
-        for (var i = 0; i < take; i++)
-        {
-            // Evenly spaced across the whole file so the start, middle and end are all seen.
-            var index = take == 1 ? 0 : (int)Math.Round((double)i * (cues.Count - 1) / (take - 1));
-            var cue = cues[index];
-            var text = cue.Text.Trim();
-            if (text.Length == 0)
-            {
-                continue;
-            }
-
-            if (chars + text.Length > maxChars)
-            {
-                break;
-            }
-
-            builder.AppendLine(text);
-            chars += text.Length;
-        }
-
-        return builder.ToString();
-    }
-
-    private static string? ExtractAssistantContent(JsonElement root)
-    {
-        if (!root.TryGetProperty("choices", out var choices)
-            || choices.ValueKind != JsonValueKind.Array
-            || choices.GetArrayLength() == 0)
-        {
-            return null;
-        }
-
-        var first = choices[0];
-        if (!first.TryGetProperty("message", out var message)
-            || !message.TryGetProperty("content", out var content))
-        {
-            return null;
-        }
-
-        if (content.ValueKind == JsonValueKind.String)
-        {
-            return content.GetString();
-        }
-
-        // Some gateways return an array of content parts.
-        if (content.ValueKind == JsonValueKind.Array)
-        {
-            var parts = content.EnumerateArray()
-                .Where(part => part.TryGetProperty("text", out _))
-                .Select(part => part.GetProperty("text").GetString())
-                .Where(text => !string.IsNullOrEmpty(text));
-
-            return string.Join("\n", parts);
-        }
-
-        return null;
-    }
-
-    private static string? ExtractJsonObject(string content)
-    {
-        var start = content.IndexOf('{');
-        var end = content.LastIndexOf('}');
-        return start >= 0 && end > start ? content[start..(end + 1)] : null;
-    }
-
-    private static bool TryBuildEndpoint(string baseUrl, out Uri endpoint)
+    /// <summary>
+    /// 把配置里的 Base URL 补成完整的 <c>/chat/completions</c> 端点。
+    ///
+    /// 单独抽出来是因为「测试连接」按钮也要用同一套规则：
+    /// 用户在配置页填的可能是 <c>https://host/v1</c>，也可能是完整地址，
+    /// 两边判断不一致就会出现「测试通过但评审连不上」。
+    /// </summary>
+    /// <param name="baseUrl">配置里的 Base URL。</param>
+    /// <param name="endpoint">补全后的端点。</param>
+    /// <returns>是合法的 http/https 地址时返回 true。</returns>
+    internal static bool TryBuildEndpoint(string baseUrl, out Uri endpoint)
     {
         endpoint = null!;
         if (string.IsNullOrWhiteSpace(baseUrl))
@@ -386,10 +228,6 @@ public sealed class AiSubtitleJudge
         }
 
         var trimmed = baseUrl.Trim().TrimEnd('/');
-        if (!trimmed.Equals(trimmed, StringComparison.Ordinal))
-        {
-            return false;
-        }
 
         // Accept both "https://host/v1" and a full "https://host/v1/chat/completions".
         if (!trimmed.EndsWith("/chat/completions", StringComparison.OrdinalIgnoreCase))
@@ -409,64 +247,5 @@ public sealed class AiSubtitleJudge
 
         endpoint = uri;
         return true;
-    }
-
-    private static string Truncate(string value, int length)
-    {
-        if (string.IsNullOrEmpty(value))
-        {
-            return string.Empty;
-        }
-
-        return value.Length <= length ? value : value[..length] + "…";
-    }
-
-    /// <summary>OpenAI-compatible chat completion request.</summary>
-    public sealed class ChatRequest
-    {
-        /// <summary>Gets or sets the model name.</summary>
-        [JsonPropertyName("model")]
-        public string Model { get; set; } = string.Empty;
-
-        /// <summary>Gets or sets the sampling temperature.</summary>
-        [JsonPropertyName("temperature")]
-        public double Temperature { get; set; }
-
-        /// <summary>Gets or sets the messages.</summary>
-        [JsonPropertyName("messages")]
-        public IReadOnlyList<ChatMessage> Messages { get; set; } = Array.Empty<ChatMessage>();
-    }
-
-    /// <summary>One chat message.</summary>
-    public sealed class ChatMessage
-    {
-        /// <summary>Gets or sets the role.</summary>
-        [JsonPropertyName("role")]
-        public string Role { get; set; } = string.Empty;
-
-        /// <summary>Gets or sets the content.</summary>
-        [JsonPropertyName("content")]
-        public string Content { get; set; } = string.Empty;
-    }
-
-    private sealed class Reply
-    {
-        [JsonPropertyName("candidates")]
-        public Item[]? Candidates { get; set; }
-    }
-
-    private sealed class Item
-    {
-        [JsonPropertyName("id")]
-        public int Id { get; set; }
-
-        [JsonPropertyName("score")]
-        public double Score { get; set; }
-
-        [JsonPropertyName("machine")]
-        public bool Machine { get; set; }
-
-        [JsonPropertyName("reason")]
-        public string? Reason { get; set; }
     }
 }

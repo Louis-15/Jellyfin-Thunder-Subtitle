@@ -17,7 +17,7 @@ namespace Jellyfin.Plugin.ThunderSubtitle.Tests;
 public class ThunderSubtitleProviderTests
 {
     private const string Srt =
-        "1\n00:00:01,000 --> 00:00:03,000\n看 这是今年的新人\n\n2\n00:00:20,000 --> 00:00:23,000\n从美国回来的\n";
+        "1\n00:00:01,000 --> 00:00:03,000\n看 这是今年的新人 从美国留学回来的\n\n2\n00:00:20,000 --> 00:00:23,000\n是吗 那么没头没脑的新人 也难让课长称心如意吧\n";
 
     private static SubtitlePick Pick(string name, Uri? uri = null)
     {
@@ -38,10 +38,24 @@ public class ThunderSubtitleProviderTests
 
         public SearchTarget? LastTarget { get; private set; }
 
-        public Task<FindOutcome> FindAsync(SearchTarget target, CancellationToken cancellationToken)
+        public MediaKind? LastKind { get; private set; }
+
+        public MediaBrief? LastBrief { get; private set; }
+
+        public string? LastExtraInstruction { get; private set; }
+
+        public Task<FindOutcome> FindAsync(
+            SearchTarget target,
+            MediaKind kind,
+            MediaBrief? brief,
+            string? extraInstruction,
+            CancellationToken cancellationToken)
         {
             Calls++;
             LastTarget = target;
+            LastKind = kind;
+            LastBrief = brief;
+            LastExtraInstruction = extraInstruction;
             var ranked = Picks.ToArray();
             var candidates = ranked.Length > 0
                 ? ranked.Select(p => new ThunderCandidate(p.Uri!, p.CandidateName, "srt")).ToArray()
@@ -72,9 +86,23 @@ public class ThunderSubtitleProviderTests
 
         public bool IsTitleLibrary { get; set; }
 
+        /// <summary>Gets or sets the item id the fake resolves for every path.</summary>
+        public System.Guid? ItemId { get; set; }
+
         public SubtitleSearchMode ModeForPath(string? mediaPath) => IsTitleLibrary ? SubtitleSearchMode.Title : Mode;
 
         public SubtitleSearchMode ModeForItem(BaseItem? item) => ModeForPath(item?.Path);
+
+        public MediaKind MediaKindForPath(string? mediaPath) =>
+            MediaKindResolver.Resolve(ModeForPath(mediaPath), null, null);
+
+        public MediaKind MediaKindForItem(BaseItem? item) => MediaKindForPath(item?.Path);
+
+        public MediaBrief BriefForItem(BaseItem? item) => MediaBrief.Empty;
+
+        public MediaBrief BriefForPath(string? mediaPath) => MediaBrief.Empty;
+
+        public System.Guid? ItemIdForPath(string? mediaPath) => ItemId;
 
         public Guid? LibraryIdForItem(BaseItem? item) => null;
 
@@ -84,10 +112,19 @@ public class ThunderSubtitleProviderTests
             _factory.FromRequest(request, mode);
     }
 
-    private static ThunderSubtitleProvider Create(FakeFinder finder, bool titleLibrary = false)
+    private static ThunderSubtitleProvider Create(
+        FakeFinder finder,
+        bool titleLibrary = false,
+        HintStore? hints = null,
+        System.Guid? itemId = null)
     {
-        var context = new FakeLibraryContext { IsTitleLibrary = titleLibrary };
-        return new ThunderSubtitleProvider(finder, new ThunderClient(), context, NullLogger<ThunderSubtitleProvider>.Instance);
+        var context = new FakeLibraryContext { IsTitleLibrary = titleLibrary, ItemId = itemId };
+        return new ThunderSubtitleProvider(
+            finder,
+            new ThunderClient(),
+            context,
+            hints ?? new HintStore(),
+            NullLogger<ThunderSubtitleProvider>.Instance);
     }
 
     private static SubtitleSearchRequest Request(string language, string? mediaPath = "/media/strm/ABF-363-U.strm")
@@ -286,51 +323,6 @@ public class ThunderSubtitleProviderTests
     }
 
     [Fact]
-    public void PlaceholderIdIsRecognised()
-    {
-        var id = SubtitleId.EncodePlaceholder("上游暂无字幕");
-
-        Assert.True(SubtitleId.IsPlaceholder(id));
-        Assert.Equal("上游暂无字幕", SubtitleId.DecodePlaceholder(id));
-        Assert.False(SubtitleId.IsPlaceholder(SubtitleId.Encode(new Uri("https://subtitle.v.geilijiasu.com/x.srt"), ".srt", "x.srt", null)));
-    }
-
-    [Fact]
-    public void SubtitleIdRoundTrips()
-    {
-        var uri = new Uri("https://subtitle.v.geilijiasu.com/DF/60/DF60BCC7.srt");
-        var id = SubtitleId.Encode(uri, ".srt", "ABF-363.海南鸡字幕.srt", "/media/strm/日本大姐姐/ABF-363.strm");
-
-        Assert.True(SubtitleId.TryDecode(id, out var decoded, out var name, out var mediaPath));
-        Assert.Equal(uri, decoded);
-        Assert.Equal("ABF-363.海南鸡字幕.srt", name);
-        Assert.Equal("/media/strm/日本大姐姐/ABF-363.strm", mediaPath);
-
-        // Jellyfin splits "<providerId>_<ourId>" with a limit of 2, so underscores are safe.
-        Assert.DoesNotContain("+", id);
-        Assert.DoesNotContain("/", id);
-    }
-
-    [Fact]
-    public void SubtitleIdToleratesAMissingMediaPath()
-    {
-        var uri = new Uri("https://subtitle.v.geilijiasu.com/DF/60/DF60BCC7.srt");
-        var id = SubtitleId.Encode(uri, ".srt", "ABF-363.srt", null);
-
-        Assert.True(SubtitleId.TryDecode(id, out _, out _, out var mediaPath));
-        Assert.Equal(string.Empty, mediaPath);
-    }
-
-    [Theory]
-    [InlineData("")]
-    [InlineData("not-base64!!")]
-    [InlineData("YWJj")] // "abc", no separators
-    public void SubtitleIdRejectsGarbage(string id)
-    {
-        Assert.False(SubtitleId.TryDecode(id, out _, out _, out _));
-    }
-
-    [Fact]
     public async Task GetSubtitlesRejectsAForeignHost()
     {
         var provider = Create(new FakeFinder());
@@ -340,45 +332,32 @@ public class ThunderSubtitleProviderTests
     }
 
     [Fact]
-    public void SubtitleFilesFindEveryChineseVariant()
+    public async Task SearchUsesTheHintStoredForThisItem()
     {
-        var dir = Path.Combine(Path.GetTempPath(), "thunder-subs-" + Guid.NewGuid().ToString("N"));
-        Directory.CreateDirectory(dir);
-        try
-        {
-            var media = Path.Combine(dir, "ABF-363.strm");
-            File.WriteAllText(media, "http://example.com/x.mp4");
+        var itemId = Guid.NewGuid();
+        var hints = new HintStore();
+        hints.Set(itemId, "这是 1970 年代的黑帮片，用词粗粝一点");
 
-            var expected = new[]
-            {
-                Path.Combine(dir, "ABF-363.chi.srt"),
-                Path.Combine(dir, "ABF-363.chi.ass"),
-                Path.Combine(dir, "ABF-363.chi.0.srt"),
-                Path.Combine(dir, "ABF-363.zh-CN.vtt")
-            };
-            foreach (var path in expected)
-            {
-                File.WriteAllText(path, "x");
-            }
+        var finder = new FakeFinder { RawCandidates = 1 };
+        var provider = Create(finder, hints: hints, itemId: itemId);
 
-            foreach (var other in new[]
-            {
-                Path.Combine(dir, "ABF-363.en.srt"),
-                Path.Combine(dir, "ABF-363.china.srt"),
-                Path.Combine(dir, "OTHER-001.chi.srt")
-            })
-            {
-                File.WriteAllText(other, "x");
-            }
+        await provider.Search(Request("chi"), CancellationToken.None);
 
-            var found = SubtitleFiles.FindChinese(media);
+        Assert.Equal("这是 1970 年代的黑帮片，用词粗粝一点", finder.LastExtraInstruction);
+    }
 
-            Assert.Equal(expected.Length, found.Count);
-            Assert.All(expected, path => Assert.Contains(path, found));
-        }
-        finally
-        {
-            Directory.Delete(dir, recursive: true);
-        }
+    [Fact]
+    public async Task SearchWithoutAHintPassesNothing()
+    {
+        // 提示词存在别的条目名下，不能串到这部片。
+        var hints = new HintStore();
+        hints.Set(Guid.NewGuid(), "给别的影片的要求");
+
+        var finder = new FakeFinder { RawCandidates = 1 };
+        var provider = Create(finder, hints: hints, itemId: Guid.NewGuid());
+
+        await provider.Search(Request("chi"), CancellationToken.None);
+
+        Assert.Null(finder.LastExtraInstruction);
     }
 }

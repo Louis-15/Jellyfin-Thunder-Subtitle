@@ -22,6 +22,8 @@ public class AiJudgeHttpTests
 
     private static SubtitlePick Pick(string name, string text) => new(name, ".srt", text, "utf-8");
 
+    private static MediaBrief Brief() => new("Dune", null, 2021, "电影", [], [], null, null);
+
     [Fact]
     public async Task JudgesThroughARealHttpCall()
     {
@@ -30,13 +32,17 @@ public class AiJudgeHttpTests
             """{"choices":[{"message":{"content":"{\"candidates\":[{\"id\":1,\"score\":35,\"machine\":true,\"reason\":\"直译\"},{\"id\":2,\"score\":91,\"machine\":false,\"reason\":\"自然\"}]}"}}]}""");
 
         var judge = new AiSubtitleJudge(NullLogger<AiSubtitleJudge>.Instance);
-        var settings = new AiSettings(stub.BaseUrl + "/v1", "secret-key", "stub-model", 12, 1000, 20, "session-abc", UseSessionHeader: true);
+        var settings = new AiSettings(
+            stub.BaseUrl + "/v1", "secret-key", "stub-model",
+            SegmentCount: 12, CuesPerSegment: 8, MaxCharsPerCandidate: 3000, TimeoutSeconds: 30,
+            SessionId: "session-abc", UseSessionHeader: true);
 
         var verdicts = await judge.JudgeAsync(
-            SearchTarget.ForCode("FSDSS-272"),
+            MediaKind.JapaneseAv,
+            Brief(),
             [Pick("a.srt", SrtA), Pick("b.srt", SrtB)],
             settings,
-            SubtitleLanguage.SimplifiedChinese,
+            null,
             CancellationToken.None);
 
         Assert.NotNull(verdicts);
@@ -46,7 +52,8 @@ public class AiJudgeHttpTests
         Assert.Equal("Bearer secret-key", stub.LastAuthorization);
         Assert.Equal("session-abc", stub.LastSessionHeader);
         Assert.Contains("\"model\":\"stub-model\"", stub.LastBody);
-        Assert.Contains("FSDSS-272", stub.LastBody);
+        Assert.Contains("\"temperature\":0", stub.LastBody);
+        Assert.Contains("Dune", stub.LastBody);
     }
 
     [Fact]
@@ -57,13 +64,17 @@ public class AiJudgeHttpTests
             """{"choices":[{"message":{"content":"{\"candidates\":[{\"id\":1,\"score\":35,\"machine\":true},{\"id\":2,\"score\":91,\"machine\":false}]}"}}]}""");
 
         var judge = new AiSubtitleJudge(NullLogger<AiSubtitleJudge>.Instance);
-        var settings = new AiSettings(stub.BaseUrl + "/v1", "k", "m", 8, 1000, 20, "session-abc", UseSessionHeader: false);
+        var settings = new AiSettings(
+            stub.BaseUrl + "/v1", "k", "m",
+            SegmentCount: 8, CuesPerSegment: 8, MaxCharsPerCandidate: 3000, TimeoutSeconds: 30,
+            SessionId: "session-abc", UseSessionHeader: false);
 
         await judge.JudgeAsync(
-            SearchTarget.ForCode("X-1"),
+            MediaKind.Foreign,
+            null,
             [Pick("a.srt", SrtA), Pick("b.srt", SrtB)],
             settings,
-            SubtitleLanguage.SimplifiedChinese,
+            null,
             CancellationToken.None);
 
         Assert.Equal(string.Empty, stub.LastSessionHeader);
@@ -76,10 +87,11 @@ public class AiJudgeHttpTests
         var judge = new AiSubtitleJudge(NullLogger<AiSubtitleJudge>.Instance);
 
         var verdicts = await judge.JudgeAsync(
-            SearchTarget.ForCode("X-1"),
+            MediaKind.Foreign,
+            null,
             [Pick("a.srt", SrtA), Pick("b.srt", SrtB)],
-            new AiSettings(stub.BaseUrl + "/v1", "wrong", "m", 8, 1000, 10),
-            SubtitleLanguage.SimplifiedChinese,
+            new AiSettings(stub.BaseUrl + "/v1", "wrong", "m", 8, 8, 3000, 10),
+            null,
             CancellationToken.None);
 
         Assert.Null(verdicts);
@@ -92,10 +104,11 @@ public class AiJudgeHttpTests
         var judge = new AiSubtitleJudge(NullLogger<AiSubtitleJudge>.Instance);
 
         var verdicts = await judge.JudgeAsync(
-            SearchTarget.ForCode("X-1"),
+            MediaKind.Foreign,
+            null,
             [Pick("a.srt", SrtA), Pick("b.srt", SrtB)],
-            new AiSettings(stub.BaseUrl + "/v1", string.Empty, "m", 8, 1000, 10),
-            SubtitleLanguage.SimplifiedChinese,
+            new AiSettings(stub.BaseUrl + "/v1", string.Empty, "m", 8, 8, 3000, 10),
+            null,
             CancellationToken.None);
 
         Assert.Null(verdicts);
@@ -108,10 +121,11 @@ public class AiJudgeHttpTests
         var judge = new AiSubtitleJudge(NullLogger<AiSubtitleJudge>.Instance);
 
         var verdicts = await judge.JudgeAsync(
-            SearchTarget.ForCode("X-1"),
+            MediaKind.Foreign,
+            null,
             [Pick("a.srt", SrtA)],
-            new AiSettings(stub.BaseUrl + "/v1", "k", "m", 8, 1000, 10),
-            SubtitleLanguage.SimplifiedChinese,
+            new AiSettings(stub.BaseUrl + "/v1", "k", "m", 8, 8, 3000, 10),
+            null,
             CancellationToken.None);
 
         Assert.Null(verdicts);

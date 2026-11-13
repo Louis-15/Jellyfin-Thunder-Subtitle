@@ -132,6 +132,16 @@ public static class SubtitleText
 
         var head = text.TrimStart('\uFEFF', ' ', '\t', '\r', '\n');
 
+        // 上游 CDN 偶尔返回字幕站的下载页而不是字幕文件。HTML 注释里的 "-->" 与 SRT 的
+        // 时间轴箭头长得一模一样，只看箭头会把它当成字幕（实测 79 KB 的「字幕库」页面
+        // 就这么混了进来，字符数还比多数真字幕多）。正常的字幕不会有 doctype / <html>。
+        var probe = head.Length > 1024 ? head[..1024] : head;
+        if (probe.Contains("<!DOCTYPE", StringComparison.OrdinalIgnoreCase)
+            || probe.Contains("<html", StringComparison.OrdinalIgnoreCase))
+        {
+            return null;
+        }
+
         if (head.StartsWith("WEBVTT", StringComparison.OrdinalIgnoreCase))
         {
             return ".vtt";
@@ -140,8 +150,20 @@ public static class SubtitleText
         var hasScriptInfo = text.Contains("[Script Info]", StringComparison.OrdinalIgnoreCase);
         var hasEvents = text.Contains("[Events]", StringComparison.OrdinalIgnoreCase);
         var hasDialogue = Regex.IsMatch(text, @"^[ \t]*Dialogue[ \t]*:", RegexOptions.Multiline | RegexOptions.IgnoreCase);
-        if (hasScriptInfo || (hasEvents && hasDialogue))
+
+        // 正常的 ASS/SSA 一定有事件段。只有 [Script Info] 和 [V4+ Styles]、没有 [Events]
+        // 也没有 Dialogue 行的文件，是被截断的残片（实测上游存在只保留样式头的 245 KB 文件），
+        // 解析不出任何台词，不能当字幕用。
+        if ((hasScriptInfo || hasEvents) && (hasEvents || hasDialogue))
         {
+            // 弹幕文件：B 站 / ACFun 的视频弹幕导出成 ASS 后也会带 [Script Info] 和
+            // Dialogue，但每条都靠 {\move(...)} 横向滚动、内容互相重叠，不是给人看影片用的字幕。
+            // 这类文件字符数往往比真字幕还多，不排除会直接胜出（实测《流浪地球》有 8000 条弹幕版）。
+            if (LooksLikeDanmaku(text))
+            {
+                return null;
+            }
+
             var isV4 = text.Contains("[V4 Styles]", StringComparison.OrdinalIgnoreCase)
                        && !text.Contains("[V4+ Styles]", StringComparison.OrdinalIgnoreCase);
             return isV4 ? ".ssa" : ".ass";
@@ -152,16 +174,48 @@ public static class SubtitleText
             return ".srt";
         }
 
-        // Last resort: a declared extension we accept and a payload that at least carries
-        // a timestamp arrow. Anything else (cd'd HTML, JSON, plain text) is dropped.
+        // Last resort: a declared extension we accept and a payload whose arrow sits between
+        // two digits. Requiring digits is what keeps HTML comments (<!-- ... -->) out.
         if (!string.IsNullOrEmpty(declaredExtension)
             && AcceptedExtensions.Contains("." + NormalizeExtension(declaredExtension), StringComparer.OrdinalIgnoreCase)
-            && text.Contains("-->", StringComparison.Ordinal))
+            && Regex.IsMatch(text, @"\d\s*-->\s*\d"))
         {
             return "." + NormalizeExtension(declaredExtension);
         }
 
         return null;
+    }
+
+    /// <summary>
+    /// 判断一份 ASS 是不是弹幕导出文件。
+    ///
+    /// B 站 / ACFun 的弹幕导出成 ASS 后，格式与字幕完全一样（都有 [Script Info]、
+    /// [Events] 和 Dialogue），区别在内容：每条弹幕都用 <c>{\move(...)}</c> 横向滚动，
+    /// 从屏幕外飞进来，而正常字幕的对话是静止的（少数标牌翻译会用 <c>\pos</c>）。
+    ///
+    /// 阈值 50%：正常特效字幕的 <c>\move</c> 占比通常在 5% 以下，弹幕文件接近 100%。
+    /// 50 条的下限是为了避免 10 条短字幕里恰好有 6 条用了 <c>\move</c> 就被误判。
+    /// </summary>
+    private static bool LooksLikeDanmaku(string text)
+    {
+        int dialogueLines = 0, moveLines = 0;
+
+        foreach (var line in text.Split('\n'))
+        {
+            var trimmed = line.TrimStart();
+            if (!trimmed.StartsWith("Dialogue:", StringComparison.OrdinalIgnoreCase))
+            {
+                continue;
+            }
+
+            dialogueLines++;
+            if (trimmed.Contains("\\move(", StringComparison.Ordinal))
+            {
+                moveLines++;
+            }
+        }
+
+        return dialogueLines >= 50 && moveLines >= dialogueLines * 0.5;
     }
 
     /// <summary>Lower cases an extension and drops any leading dots.</summary>
@@ -226,7 +280,16 @@ public static class SubtitleText
         return (cjk * 3) - (latin1 * 2) - (bad * 8);
     }
 
-    private static bool IsCjk(char ch)
+    /// <summary>
+    /// 判断一个字符是不是「中文语境」的字或标点。
+    ///
+    /// 半角片假名（U+FF61～U+FF9F）单列出来排除：它是 Shift-JIS 被当成 GB18030 解码后的产物，
+    /// 真正的中文字幕里不会出现。全角 ASCII（U+FF00～U+FF60）算进来，
+    /// 因为中文语境下本来就该用全角标点。
+    /// </summary>
+    /// <param name="ch">待判断的字符。</param>
+    /// <returns>属于 CJK 范畴返回 true。</returns>
+    internal static bool IsCjk(char ch)
     {
         if (ch >= '\uFF61' && ch <= '\uFF9F')
         {
