@@ -9,6 +9,14 @@
     "imageUrl": "https://raw.githubusercontent.com/Louis-15/Jellyfin-Thunder-Subtitle/main/logo.png",
     "versions": [
       {
+        "version": "1.11.0.1",
+        "changelog": "Release 1.11.0.1\n\nRelease 1.11.0.1\n\n修复插件详情页简介仍显示旧文案：Jellyfin 插件详情页读取的是 dll 内的 Plugin.Description，\nmeta.json 的 description 只用于插件目录（未安装时）展示。1.11.0.0 漏改了前者，本次两处同步。",
+        "targetAbi": "12.2.0.0",
+        "sourceUrl": "https://github.com/Louis-15/Jellyfin-Thunder-Subtitle/releases/download/v1.11.0.1/thunder-subtitle_1.11.0.1.zip",
+        "checksum": "db477cb9d36c064dffde2c54904d1ecb",
+        "timestamp": "2026-11-14T15:02:37Z"
+      },
+      {
         "version": "1.11.0.0",
         "changelog": "Release 1.11.0.0\n\nRelease 1.11.0.0\n\n字幕界面重做：候选卡片与「我的字幕」统一为三行布局。\n- 第一行显示名称或文件名、格式、字数、条数、文件大小\n- 第二行显示 AI 评分、翻译方式与字形，均为按质量着色的胶囊标签\n- 第三行显示 AI 评语\n- 「我的字幕」显示写入时的 AI 评分、评语、翻译方式与转换来源\n- 通过「简」按钮转换后，标签改为绿色并保留来源说明（如「简繁混用转简体」）\n\n筛选与下载：\n- 手动搜索下载也会把当次 AI 结论写入字幕台账\n- 手动下载只清理插件命名的 .chi.*，不再删除用户自行放置的 .zh.srt / .zho.srt\n- 修复繁体、简繁混用字幕点「简」后标签仍为红色或橙色的问题\n- 修复部分环境下紫色字形标签与「简」按钮不显示的问题\n\n其他：\n- 配置页与日志统一使用「番号类影片」称谓\n- 重写 README：手动筛选字幕按实际操作顺序说明\n- 更新插件简介，使其匹配当前筛选算法",
         "targetAbi": "12.2.0.0",
