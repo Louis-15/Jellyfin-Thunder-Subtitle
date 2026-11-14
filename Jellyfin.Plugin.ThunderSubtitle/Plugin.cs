@@ -33,8 +33,9 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
 
     /// <inheritdoc />
     public override string Description =>
-        "自动为影视库补中文外挂字幕：普通影视按片名搜索，按番号命名的影片按番号搜索。"
-        + "每个影视库可分别开关「自动补全」与「自动择优」，网盘同步的字幕和内嵌字幕永远不会被覆盖。";
+        "自动为影视库检索中文外挂字幕：按影片类型分化语言策略，可选大模型横向评审择优。"
+        + "每个影视库可分别开关「自动补全」与「自动择优」，网盘同步的字幕和内嵌字幕永远不会被覆盖；"
+        + "也支持手动搜索，以三行卡片查看 AI 评分与评语、预览全文、就地繁转简后再下载。";
 
     /// <inheritdoc />
     public override Guid Id => PluginId;
