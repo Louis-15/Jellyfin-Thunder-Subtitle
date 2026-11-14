@@ -124,11 +124,14 @@ public class ThunderSubtitleProviderTests
         System.Guid? itemId = null)
     {
         var context = new FakeLibraryContext { IsTitleLibrary = titleLibrary, ItemId = itemId };
+        var provenance = new ProvenanceStore(
+            Path.Combine(Path.GetTempPath(), "ts-provenance-" + Guid.NewGuid().ToString("N") + ".json"));
         return new ThunderSubtitleProvider(
             finder,
             new ThunderClient(),
             context,
             hints ?? new HintStore(),
+            provenance,
             NullLogger<ThunderSubtitleProvider>.Instance);
     }
 
@@ -279,13 +282,13 @@ public class ThunderSubtitleProviderTests
         Assert.Equal(4.5f, results[0].CommunityRating);
         Assert.False(results[0].MachineTranslated);
         Assert.True(results[1].MachineTranslated);
-        Assert.Contains("AI 90 分", results[0].Comment);
-        Assert.Contains("直译", results[1].Comment);
 
-        // The score and its reason get their own line: Jellyfin renders the comment with
-        // white-space: pre-line, and mixing them into the measurements made the row unreadable.
-        Assert.Contains("\nAI 90 分", results[0].Comment);
-        Assert.Contains("\nAI 30 分", results[1].Comment);
+        // Comment 的行序就是卡片的行序：评分 → 语言 · 翻译方式 → 字数 / 条数 / 大小 → 评语。
+        Assert.StartsWith("AI 评分：90 分\n", results[0].Comment);
+        Assert.Contains("简体 · 人工翻译", results[0].Comment);
+        Assert.Contains("简体 · 机器翻译", results[1].Comment);
+        Assert.Contains(" 字 / ", results[0].Comment);
+        Assert.Contains("直译", results[1].Comment);
         Assert.DoesNotContain("· AI", results[0].Comment);
     }
 

@@ -1,10 +1,11 @@
 /*
- * 行增强：搜索结果行与「我的字幕」行的紫色字形标签、繁转简按钮。
+ * 行增强：搜索结果行与「我的字幕」行的字形标签、繁转简按钮。
  *
- * 由服务端按顺序拼接在 clientScript.js 之后，共享 window.__ts 上的工具函数。
+ * 由服务端按顺序拼接在 clientScript.Card.js 之后，共享 window.__ts 上的工具函数。
  *
- * 为什么单独一个文件：clientScript.js 已经 400 行，再塞进这两类行会破 600 行红线。
- * 职责也确实是分开的：那边管「怎么预览一份字幕」，这边管「往 Jellyfin 的行上挂什么」。
+ * 为什么单独一个文件：clientScript.js 已经 400 多行，再塞进这两类行会破 600 行红线。
+ * 职责也确实是分开的：那边管「怎么预览一份字幕」，Card.js 管「卡片长什么样、标签什么颜色」，
+ * 这边只管「往 Jellyfin 的行上挂什么按钮、开关怎么切」。
  */
 (function (TS) {
     'use strict';
@@ -17,7 +18,8 @@
     var PREVIEW_ACTION = 'preview';
     var CONVERT_ACTION = 'convert';
 
-    /// 字形字母 → 标签文案。简体不显示标签（用户看惯简体，没必要每个都标一遍）。
+    /// 字形字母 → 标签文案。只在没有服务端结构化评论时兜底；
+    /// 正常路径的文案与配色由 clientScript.Card.js 负责。
     var LABELS = {
         t: '繁体',
         m: '简繁混用'
@@ -28,50 +30,41 @@
         return !!row.querySelector('[' + MARK + '="' + action + '"]');
     }
 
-    /// 往一行的标签区插入紫色 pill。
+    /// 「我的字幕」那类行只有文案，没有服务端结构化评论，按文案本身判配色。
+    /// 与 Card.js 的规则保持一致：混用橙、繁体红、简体绿。
+    function labelTone(label) {
+        if (label.indexOf('混用') >= 0) {
+            return 'tsPillWarn';
+        }
+
+        if (label.indexOf('繁') >= 0) {
+            return 'tsPillBad';
+        }
+
+        return label.indexOf('简') >= 0 ? 'tsPillGood' : '';
+    }
+
+    /// 给搜索结果行加「简」按钮与字形标签。
     ///
-    /// 复用 Jellyfin 原生的 .subtitleFeaturePillow，只加一个 tsScriptPillow 换配色 ——
-    /// 这样尺寸、圆角、对齐全都跟原生「机器翻译 / AI 翻译」一致，不用自己去猜样式。
-    /// 没有标签容器时（Jellyfin 只在有 pill 时才渲染那个 div），自己造一个。
-    TS.addScriptPillow = function (row, text) {
-        if (!row || !text || row.querySelector('.tsScriptPillow')) {
-            return;
-        }
-
-        var body = row.querySelector('.listItemBody');
-        if (!body) {
-            return;
-        }
-
-        var container = null;
-        var pills = body.querySelectorAll('.subtitleFeaturePillow');
-        if (pills.length > 0 && pills[0].parentNode) {
-            container = pills[0].parentNode;
-        } else {
-            container = document.createElement('div');
-            container.className = 'secondary listItemBodyText';
-            body.appendChild(container);
-        }
-
-        var pill = document.createElement('span');
-        pill.className = 'inline-flex align-items-center justify-content-center subtitleFeaturePillow tsScriptPillow';
-        pill.textContent = text;
-        container.appendChild(pill);
-    };
-
-    /// 给搜索结果行加「简」按钮与紫色标签。
-    ///
-    /// 只在繁体 / 混用时加按钮：简体没有可转的东西，多一个按钮只会让行更挤。
+    /// 排版（三行、评分胶囊、统计搬到第一行）由 clientScript.Card.js 负责；
+    /// 这里只负责「繁体 / 混用才给转换按钮」，简体没有可转的东西。
     /// 「简」不是「下载并转简」，而是一个开关：点亮后这一行后续的预览与下载都会走转简版。
     TS.decorateResultRow = function (row, info) {
-        var label = LABELS[info.script];
-        if (!label) {
+        if (!row || !info) {
             return;
         }
 
-        TS.addScriptPillow(row, label);
+        // 正常路径：Card.js 把卡片重排成三行，并画出评分 / 翻译 / 字形胶囊。
+        // 返回 false 表示服务端评论不是新格式（旧 dll 或评语为空），退回到只补字形标签。
+        var restructured = TS.decorateResultCard ? TS.decorateResultCard(row, info) : false;
+        if (!restructured) {
+            var label = LABELS[info.script];
+            if (label) {
+                TS.addScriptPillow(row, label, labelTone(label));
+            }
+        }
 
-        if (hasButton(row, CONVERT_ACTION)) {
+        if (info.script === 's' || hasButton(row, CONVERT_ACTION)) {
             return;
         }
 
@@ -142,11 +135,24 @@
 
         var pill = row.querySelector('.tsScriptPillow');
         if (pill) {
+            // base 是 Card.js 写进 data-ts-base 的原文案（可能是「繁英双语」这类带后缀的写法），
+            // 不能再用 LABELS[current.script] 猜：那样会把后缀丢掉。
+            var base = pill.getAttribute('data-ts-base') || LABELS[current.script] || '字幕';
             // 「繁体」→「繁体转简体」，「简繁混用」→「简繁混用转简体」。
             // 保留原标签而不是换成固定文案，是因为混用和纯繁体对用户是两件事。
-            pill.textContent = on
-                ? LABELS[current.script] + '转简体'
-                : LABELS[current.script];
+            pill.textContent = on ? base + '转简体' : base;
+
+            // 打开开关后实际会以简体落盘，标签必须变绿；关掉时恢复原字形颜色。
+            // 原色存在 data-ts-tone 里，不在这里重新推断，避免两处规则漂移。
+            var baseTone = pill.getAttribute('data-ts-tone') || (TS.scriptTone
+                ? TS.scriptTone(base, current.script)
+                : '');
+            pill.classList.remove('tsPillGood', 'tsPillWarn', 'tsPillBad');
+            if (on) {
+                pill.classList.add('tsPillGood');
+            } else if (baseTone) {
+                pill.classList.add(baseTone);
+            }
         }
     };
 
@@ -160,7 +166,7 @@
         return marker.charAt(0) + marker.charAt(1) + '1-';
     }
 
-    /// 扫描「我的字幕」里的每一行，加预览按钮、简按钮与紫色标签。
+    /// 扫描「我的字幕」里的每一行，加预览按钮、简按钮与字形标签。
     TS.scanExisting = function () {
         var list = document.querySelector('.subtitleList');
         if (!list) {
@@ -222,11 +228,17 @@
                 preview.style.display = '';
             }
 
-            if (!info || !info.label || info.script === 'simplified') {
+            if (!info || info.available === false) {
                 return;
             }
 
-            TS.addScriptPillow(row, info.label);
+            // 新格式：和候选卡片一样的三行布局（文件名+统计 / 胶囊 / AI 评语）。
+            // 旧服务端只有 label，退回最小增强。
+            if (TS.decorateExistingCard) {
+                TS.decorateExistingCard(row, info);
+            } else if (info.label) {
+                TS.addScriptPillow(row, info.label, labelTone(info.label));
+            }
 
             if (!info.convertible || hasButton(row, CONVERT_ACTION)) {
                 return;
@@ -243,7 +255,7 @@
                 convert.addEventListener('click', function (event) {
                     event.preventDefault();
                     event.stopPropagation();
-                    convertExisting(itemId, index, info, row);
+                    convertExisting(itemId, index, row);
                     return false;
                 });
             }
@@ -272,7 +284,7 @@
         });
     }
 
-    function convertExisting(itemId, index, info, row) {
+    function convertExisting(itemId, index, row) {
         if (!window.confirm('把这份字幕转成简体？\n\n原文件会备份为 .bak，可以随时还原。')) {
             return;
         }
@@ -291,11 +303,16 @@
             return response.json();
         }).then(function (data) {
             if (data && data.ok) {
-                // 转换后字形变了，标签要跟着改：把「繁体 / 简繁混用」换成「繁体转简体」，
-                // 与候选列表里那份的文案保持一致。
+                // 转换后文件已经是简体：文案保留来源（「简繁混用转简体」），
+                // 但颜色必须变绿 —— 文件现在就是简体，继续用红色 / 橙色会误导。
                 var pill = row.querySelector('.tsScriptPillow');
                 if (pill) {
-                    pill.textContent = info.label + '转简体';
+                    var base = pill.getAttribute('data-ts-base') || '字幕';
+                    pill.textContent = base + '转简体';
+                    pill.setAttribute('data-ts-base', base);
+                    pill.setAttribute('data-ts-tone', 'tsPillGood');
+                    pill.classList.remove('tsPillBad', 'tsPillWarn');
+                    pill.classList.add('tsPillGood');
                 }
 
                 // 转完就没有可转的东西了，按钮该消失。

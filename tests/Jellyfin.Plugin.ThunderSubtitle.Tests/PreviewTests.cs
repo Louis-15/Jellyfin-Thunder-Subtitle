@@ -1,6 +1,7 @@
 using System;
 using System.IO;
 using System.Linq;
+using Jellyfin.Plugin.ThunderSubtitle.Api;
 using Jellyfin.Plugin.ThunderSubtitle.Core;
 using Jellyfin.Plugin.ThunderSubtitle.Providers;
 using Xunit;
@@ -177,5 +178,23 @@ public class PreviewTests
         using var reader = new StreamReader(stream);
 
         Assert.Contains("TS.decorateResultRow(row, info)", reader.ReadToEnd(), StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void ClientScriptBundleKeepsTheRequiredOrder()
+    {
+        // 四个前端文件由 PreviewController 拼接后一次性下发，顺序有意义：
+        // core 建立 window.__ts → Card 定义卡片工具 → Rows 用 Card 的函数 →
+        // Hint 最后。顺序错了不会编译失败，只会在浏览器里抛异常，所以必须在这里守住。
+        var bundle = PreviewController.LoadClientScript();
+        var core = bundle.IndexOf("TS.SCRIPT_MARKERS =", StringComparison.Ordinal);
+        var card = bundle.IndexOf("TS.decorateResultCard = function", StringComparison.Ordinal);
+        var rows = bundle.IndexOf("TS.toggleSimplify = function", StringComparison.Ordinal);
+        var hint = bundle.IndexOf("TS.ensureHintBox = function", StringComparison.Ordinal);
+
+        Assert.True(core >= 0, "缺少 clientScript.js");
+        Assert.True(card > core, "clientScript.Card.js 必须在 clientScript.js 之后");
+        Assert.True(rows > card, "clientScript.Rows.js 必须在 clientScript.Card.js 之后");
+        Assert.True(hint > rows, "clientScript.Hint.js 必须在 clientScript.Rows.js 之后");
     }
 }

@@ -20,6 +20,13 @@ namespace Jellyfin.Plugin.ThunderSubtitle.Core;
 /// <param name="AiSource">human / ai / asr / mixed。</param>
 /// <param name="TypoCount">中文影视的错别字数量。</param>
 /// <param name="PromptVersion">评分时使用的提示词版本，版本变了旧分数就不能比。</param>
+/// <param name="AiReason">AI 评语原文，展示在「我的字幕」卡片的第 3 行。</param>
+/// <param name="AiMachineTranslated">AI 判定的翻译方式；旧记录没有这个字段，<c>null</c> 表示未知。</param>
+/// <param name="AiAbsolute">评分时只有一份候选，界面要标注「仅此一份，绝对评分」。</param>
+/// <param name="ConvertedFrom">
+/// 这份文件是从哪种字形转成简体的（「繁体」/「简繁混用」）；空字符串表示没有转过。
+/// 「我的字幕」卡片用它画「简繁混用转简体」这种标签，而不是只写「简体」。
+/// </param>
 public sealed record SubtitleProvenance(
     string ItemId,
     string Code,
@@ -33,7 +40,11 @@ public sealed record SubtitleProvenance(
     double? AiScore = null,
     string AiSource = "",
     int TypoCount = 0,
-    int PromptVersion = 0);
+    int PromptVersion = 0,
+    string AiReason = "",
+    bool? AiMachineTranslated = null,
+    bool AiAbsolute = false,
+    string ConvertedFrom = "");
 
 /// <summary>
 /// Small JSON ledger of the subtitles this plugin wrote. It lets the re-pick task tell

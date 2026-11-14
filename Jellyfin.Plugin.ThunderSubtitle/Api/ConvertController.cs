@@ -1,4 +1,5 @@
 using System;
+using System.Globalization;
 using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
@@ -23,60 +24,209 @@ namespace Jellyfin.Plugin.ThunderSubtitle.Api;
 public sealed class ConvertController : ControllerBase
 {
     private readonly ILibraryManager _library;
+    private readonly ProvenanceStore _provenance;
     private readonly PluginLog _log;
 
     /// <summary>Initializes a new instance of the <see cref="ConvertController"/> class.</summary>
     /// <param name="library">Used to resolve an item id to its media streams.</param>
+    /// <param name="provenance">字幕台账：「我的字幕」卡片要读回 AI 评分与评语。</param>
     /// <param name="logger">Logger.</param>
-    public ConvertController(ILibraryManager library, ILogger<ConvertController> logger)
+    public ConvertController(ILibraryManager library, ProvenanceStore provenance, ILogger<ConvertController> logger)
     {
         _library = library;
+        _provenance = provenance;
         _log = new PluginLog(logger);
     }
 
     /// <summary>
-    /// 查一个字幕流用的是什么字形，以及它能不能被本插件转换。
+    /// 查一个字幕流的字形、统计与 AI 记录，供「我的字幕」卡片画三行布局。
     /// 前端在「我的字幕」每一行上调用一次。
     /// </summary>
     /// <param name="itemId">The video item id.</param>
     /// <param name="index">Media stream index of the subtitle.</param>
-    /// <returns><c>{ script, convertible, reason }</c>。</returns>
+    /// <returns>
+    /// 字形 / 语言 / 格式 / 字数 / 条数 / 大小，以及台账里记过的 AI 评分、评语、翻译方式。
+    /// </returns>
     [Authorize]
     [HttpGet("Script")]
     public IActionResult Script([FromQuery] Guid itemId, [FromQuery] int index)
     {
         if (!TryResolve(itemId, index, out var path, out var error))
         {
-            return Ok(new { script = "simplified", convertible = false, reason = error });
+            return Ok(Unavailable(error));
         }
 
-        // 只读一次开头就够了：字形判定不需要整份文件。
-        // 但读太少会误判（「这是」两个字判断不了），所以最多读 256 KB，
-        // 对 200 KB 的常见字幕就是全文。
+        // 统计字数 / 条数需要整份文件；字幕文件通常几十到几百 KB，
+        // 这里上限 16 MB 只是防止误指到超大文件，正常字幕都远小于它。
         string text;
+        long bytes;
         try
         {
-            text = ReadHead(path!, 256 * 1024);
+            bytes = new FileInfo(path!).Length;
+            text = ReadHead(path!, 16 * 1024 * 1024);
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
-            return Ok(new { script = "simplified", convertible = false, reason = "文件读不出来：" + ex.Message });
+            return Ok(Unavailable("文件读不出来：" + ex.Message));
         }
 
-        var script = ChineseScriptDetector.Detect(SubtitleContent.StripMarkup(text));
+        var extension = Path.GetExtension(path!);
+        var stripped = SubtitleContent.StripMarkup(text);
+        var cues = SubtitleContent.Parse(text, extension);
+        var stats = SubtitleContent.Measure(cues, text);
+        var script = ChineseScriptDetector.Detect(stripped);
+        var language = SubtitleLanguageDetector.Detect(cues, stripped);
+        var plugin = IsPluginSubtitle(path!);
+
+        // 台账只有在「记录的就是这个文件」且文件没被外部改过时才可信。
+        // 用户手动替换过文件后还沿用旧评分，会让「与现有字幕对比」变成对比错对象。
+        var record = _provenance.Get(itemId.ToString("N"));
+        var trusted = record is not null
+                      && string.Equals(record.File, path, StringComparison.Ordinal)
+                      && !IsStale(record, path!);
+
+        var convertedFrom = trusted ? record!.ConvertedFrom : string.Empty;
+        var detectedFromBackup = false;
+        if (string.IsNullOrEmpty(convertedFrom) && plugin && script == ChineseScript.Simplified)
+        {
+            // 兼容这次改动之前做过的转换：那时 Convert 还没写 ConvertedFrom，
+            // 只要 .bak 比台账新，就说明当前文件是转换后的产物。
+            var backup = path + ".bak";
+            if (System.IO.File.Exists(backup)
+                && (record is null || !trusted || System.IO.File.GetLastWriteTimeUtc(backup) > record.WrittenAt.UtcDateTime))
+            {
+                var backupScript = DetectScript(backup);
+                if (ChineseScriptDetector.NeedsConversion(backupScript))
+                {
+                    convertedFrom = ChineseScriptDetector.DisplayName(backupScript);
+                    detectedFromBackup = true;
+                }
+            }
+        }
+
+        if (detectedFromBackup)
+        {
+            // 把探测结果落回台账：用户删掉 .bak 之后，「我的字幕」仍然记得它是转过的。
+            // 旧记录的 AI 字段此时已经因为文件被改动而不可信，这里只保留身份信息。
+            try
+            {
+                _provenance.Set(new SubtitleProvenance(
+                    itemId.ToString("N"),
+                    record?.Code ?? string.Empty,
+                    path!,
+                    record?.CandidateName ?? Path.GetFileName(path!),
+                    bytes,
+                    0,
+                    DateTimeOffset.UtcNow,
+                    record?.MediaKind ?? string.Empty,
+                    record?.Language ?? string.Empty,
+                    ConvertedFrom: convertedFrom));
+            }
+            catch (Exception ex)
+            {
+                _log.Warn($"读取字幕卡片：回填转换记录失败（{ex.Message}）。");
+            }
+        }
+
+        bool? machine = null;
+        if (trusted)
+        {
+            machine = record!.AiMachineTranslated;
+            if (machine is null && record.AiSource.Length > 0)
+            {
+                // 旧台账没有这个字段，只能从来源标签反推；mixed 推不出来就留空，
+                // 前端宁可不画翻译胶囊，也不要给用户一个猜的结论。
+                machine = record.AiSource is "ai" or "asr" ? true : record.AiSource == "human" ? false : null;
+            }
+        }
 
         return Ok(new
         {
-            script = script switch
-            {
-                ChineseScript.Traditional => "traditional",
-                ChineseScript.Mixed => "mixed",
-                _ => "simplified"
-            },
+            available = true,
+            script = ScriptLetter(script),
             label = ChineseScriptDetector.DisplayName(script),
-            convertible = IsPluginSubtitle(path!),
-            reason = IsPluginSubtitle(path!) ? string.Empty : "不是本插件生成的字幕，不修改"
+            language = SubtitleLanguageDetector.DisplayName(language),
+            // 转换只对插件自己写的 .chi.* 开放，且已经是简体时没有必要再转。
+            convertible = plugin && ChineseScriptDetector.NeedsConversion(script),
+            reason = plugin ? string.Empty : "不是本插件生成的字幕，不修改",
+            file = Path.GetFileName(path),
+            format = extension.TrimStart('.'),
+            chars = stats.ContentChars,
+            cues = stats.CueCount,
+            bytes,
+            convertedFrom,
+            aiScore = trusted ? record!.AiScore : null,
+            aiScoreText = trusted && record!.AiScore is { } score
+                ? score.ToString("F0", CultureInfo.InvariantCulture)
+                : string.Empty,
+            aiComment = trusted ? ComposeComment(record!) : string.Empty,
+            machine
         });
+    }
+
+    /// <summary>「我的字幕」卡片读不到文件时返回的空信息，前端据 <c>available=false</c> 跳过排版。</summary>
+    private static object Unavailable(string reason) => new
+    {
+        available = false,
+        script = "simplified",
+        label = "简体",
+        language = string.Empty,
+        convertible = false,
+        reason,
+        file = string.Empty,
+        format = string.Empty,
+        chars = 0,
+        cues = 0,
+        bytes = 0L,
+        convertedFrom = string.Empty,
+        aiScore = (double?)null,
+        aiScoreText = string.Empty,
+        aiComment = string.Empty,
+        machine = (bool?)null
+    };
+
+    private static string ScriptLetter(ChineseScript script) => script switch
+    {
+        ChineseScript.Traditional => "traditional",
+        ChineseScript.Mixed => "mixed",
+        _ => "simplified"
+    };
+
+    /// <summary>
+    /// 台账记录是否已过期：文件在记录之后被外部改过。
+    /// 手动下载是「先记台账、Jellyfin 后写文件」，文件时间会略晚于记录时间，
+    /// 所以留 5 分钟容差，避免把正常写入误判成外部修改。
+    /// </summary>
+    private static bool IsStale(SubtitleProvenance record, string path)
+    {
+        try
+        {
+            return System.IO.File.GetLastWriteTimeUtc(path) > record.WrittenAt.UtcDateTime.AddMinutes(5);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            return false;
+        }
+    }
+
+    /// <summary>把台账里的 AI 结论拼成卡片第 3 行的文本。</summary>
+    private static string ComposeComment(SubtitleProvenance record)
+    {
+        var note = record.AiAbsolute ? "（仅此一份，绝对评分）" : string.Empty;
+        return string.IsNullOrWhiteSpace(record.AiReason) ? note : note + record.AiReason;
+    }
+
+    /// <summary>读一份字幕开头并判定字形；失败时按简体处理（不显示转换标签）。</summary>
+    private static ChineseScript DetectScript(string path)
+    {
+        try
+        {
+            return ChineseScriptDetector.Detect(SubtitleContent.StripMarkup(ReadHead(path, 256 * 1024)));
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            return ChineseScript.Simplified;
+        }
     }
 
     /// <summary>
@@ -145,12 +295,49 @@ public sealed class ConvertController : ControllerBase
         _log.Info($"手动繁转简：{Path.GetFileName(path!)}（原字形 {ChineseScriptDetector.DisplayName(before)}），"
                   + $"{bytes.Length} B，原文件已备份为 .bak。");
 
+        RecordConversion(itemId, path!, before);
+
         return Ok(new
         {
             ok = true,
             message = $"已转为简体（原字形 {ChineseScriptDetector.DisplayName(before)}），原文件备份为 {Path.GetFileName(path!)}.bak。",
             bytes = bytes.Length
         });
+    }
+
+    /// <summary>
+    /// 转换成功后把「从哪种字形转来的」写进台账。
+    /// 「我的字幕」卡片下次打开时要显示「简繁混用转简体」而不是笼统的「简体」，
+    /// 所以原字形必须记住 —— 文件转完之后已经看不出来了。
+    /// </summary>
+    private void RecordConversion(Guid itemId, string path, ChineseScript before)
+    {
+        try
+        {
+            var key = itemId.ToString("N");
+            var label = ChineseScriptDetector.DisplayName(before);
+            var size = new FileInfo(path).Length;
+            var record = _provenance.Get(key);
+
+            _provenance.Set(record is not null && string.Equals(record.File, path, StringComparison.Ordinal)
+                // 转换刚写过文件，记录时间必须跟着更新：否则「文件比记录新」会被判成
+                // 外部改动，下一次打开卡片就会把 AI 评分藏起来。
+                ? record with { ConvertedFrom = label, Bytes = size, WrittenAt = DateTimeOffset.UtcNow }
+                : new SubtitleProvenance(
+                    key,
+                    string.Empty,
+                    path,
+                    Path.GetFileName(path),
+                    size,
+                    0,
+                    DateTimeOffset.UtcNow,
+                    ConvertedFrom: label));
+        }
+        catch (Exception ex)
+        {
+            // 台账只影响界面展示，记不下来也不能让转换本身失败。
+            _log.Warn($"手动繁转简：记录字幕台账失败（{ex.Message}）。");
+        }
     }
 
     private static readonly System.Text.UTF8Encoding Utf8NoBom = new(encoderShouldEmitUTF8Identifier: false);

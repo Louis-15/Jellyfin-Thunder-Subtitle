@@ -113,7 +113,7 @@ public sealed partial class SubtitleJob
             return ProcessResult.KeptExisting;
         }
 
-        await WriteAsync(item, mediaPath, code, kind, best, bestVerdict, cancellationToken).ConfigureAwait(false);
+        await WriteAsync(item, mediaPath, code, kind, best, bestVerdict, outcome.Shortlist.Count == 1, cancellationToken).ConfigureAwait(false);
         return ProcessResult.Written;
     }
 
@@ -185,6 +185,7 @@ public sealed partial class SubtitleJob
         MediaKind kind,
         SubtitlePick best,
         AiVerdict? bestVerdict,
+        bool absolute,
         CancellationToken cancellationToken)
     {
         var target = Sidecar.TargetPath(mediaPath, best.Extension);
@@ -199,6 +200,13 @@ public sealed partial class SubtitleJob
         var note = best.Simplify ? "，已按要求繁转简" : string.Empty;
         _log.Info($"{Display(item)} [{code}]：写入「{Path.GetFileName(target)}」{payload.Length} B（{best.EncodingName} → utf-8{note}）。");
 
+        // 「我的字幕」卡片要复现这次选择的全部依据，所以把评语、翻译方式、
+        // 「仅此一份」标记和原字形一起记下来；只存分数的话，下次打开卡片
+        // 就会出现「有评分但没有评语」的半截信息。
+        var convertedFrom = best.Simplify
+            ? ChineseScriptDetector.DisplayName(best.Script)
+            : string.Empty;
+
         _provenance.Set(new SubtitleProvenance(
             ItemKey(item),
             code,
@@ -212,7 +220,11 @@ public sealed partial class SubtitleJob
             bestVerdict?.Score,
             bestVerdict?.EffectiveSource ?? string.Empty,
             bestVerdict?.Typos ?? 0,
-            AiPrompts.Version));
+            AiPrompts.Version,
+            bestVerdict?.Reason ?? string.Empty,
+            bestVerdict?.MachineTranslated ?? (best.AiMarkers > 0),
+            bestVerdict is not null && absolute,
+            convertedFrom));
 
         await VerifyAsync(item, target, cancellationToken).ConfigureAwait(false);
     }

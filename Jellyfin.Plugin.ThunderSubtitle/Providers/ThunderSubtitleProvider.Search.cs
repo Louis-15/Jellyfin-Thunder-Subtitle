@@ -112,10 +112,23 @@ public sealed partial class ThunderSubtitleProvider
             return [Notice(target.Label, outcome)];
         }
 
-        return outcome.Ranked
-            .Where(pick => pick.Uri is not null)
-            .Select((pick, index) => ToInfo(pick, index + 1, outcome, request.MediaPath))
-            .ToArray();
+        var picks = outcome.Ranked.Where(pick => pick.Uri is not null).ToArray();
+        var absolute = outcome.Shortlist.Count == 1;
+        var results = new List<RemoteSubtitleInfo>(picks.Length);
+        for (var i = 0; i < picks.Length; i++)
+        {
+            var info = ToInfo(picks[i], i + 1, outcome, request.MediaPath);
+            results.Add(info);
+
+            // 把这次评审判定的结论暂存起来：用户可能过一会儿才点下载，
+            // 而 GetSubtitles 只能拿到 id，拿不到 AiVerdict。
+            if (outcome.VerdictOf(picks[i]) is { } verdict)
+            {
+                RememberManualAi(info.Id, verdict, absolute);
+            }
+        }
+
+        return results;
     }
 
     /// <summary>
@@ -160,27 +173,48 @@ public sealed partial class ThunderSubtitleProvider
         var size = pick.Bytes >= 1024
             ? string.Create(CultureInfo.InvariantCulture, $"{pick.Bytes / 1024.0:F1} KB")
             : $"{pick.Bytes} B";
-        var comment = $"{language} · {pick.ContentChars} 字 / {pick.CueCount} 条 · {size}";
 
         float? rating = null;
         bool? machine = pick.AiMarkers > 0 ? true : null;
+        var aiLine = string.Empty;
+        var reason = string.Empty;
 
         var verdict = outcome.VerdictOf(pick);
         if (verdict is not null)
         {
-            // On its own line: Jellyfin renders the comment with white-space: pre-line, and mixing
-            // a long reason into the measurements made the row unreadable.
-            // 只有一份候选时注明「绝对评分」：这个分数不是跟别人比出来的，
-            // 不加说明的话，用户会以为它和 8 份横向比较打出来的分是一回事。
-            var scale = outcome.Shortlist.Count == 1 ? "（仅此一份，绝对评分）" : string.Empty;
-            comment += "\n" + string.Create(CultureInfo.InvariantCulture, $"AI {verdict.Score:F0} 分{scale}");
-            if (!string.IsNullOrWhiteSpace(verdict.Reason))
-            {
-                comment += $"（{verdict.Reason}）";
-            }
-
             rating = (float)Math.Round(verdict.Score / 20.0, 2);
             machine = verdict.MachineTranslated;
+
+            // 这一行的文案由前端 clientScript.Card.js 解析成评分胶囊，
+            // 改动格式时必须两边一起改（正则见 parseComment）。
+            aiLine = string.Create(CultureInfo.InvariantCulture, $"AI 评分：{verdict.Score:F0} 分");
+
+            // 只有一份候选时注明「绝对评分」：这个分数不是跟别人比出来的，
+            // 不加说明的话，用户会以为它和 8 份横向比较打出来的分是一回事。
+            // 说明并入评语行（第 3 行），不再塞进评分胶囊 —— 胶囊只显示分数。
+            var scale = outcome.Shortlist.Count == 1 ? "（仅此一份，绝对评分）" : string.Empty;
+            reason = scale + (string.IsNullOrWhiteSpace(verdict.Reason) ? string.Empty : verdict.Reason);
+        }
+
+        // Comment 的行序就是卡片的行序约定，前端按前缀解析：
+        //   1. AI 评分：XX 分          → 第 2 行的评分胶囊（没有 AI 评审时省略）
+        //   2. {语言} · {机器翻译/人工翻译} → 第 2 行的两个标签
+        //   3. {字数} 字 / {条数} 条 · {大小} → 移到第 1 行，接在文件名后面
+        //   4. AI 评语                 → 第 3 行
+        // 保持纯文本可读：脚本没加载时，这些行仍然是有意义的说明，不会露出裸标记。
+        var lines = new List<string>(4);
+        if (aiLine.Length > 0)
+        {
+            lines.Add(aiLine);
+        }
+
+        lines.Add($"{language} · {(machine == true ? "机器翻译" : "人工翻译")}");
+        lines.Add(string.Create(
+            CultureInfo.InvariantCulture,
+            $"{pick.ContentChars} 字 / {pick.CueCount} 条 · {size}"));
+        if (reason.Length > 0)
+        {
+            lines.Add(reason);
         }
 
         return new RemoteSubtitleInfo
@@ -189,7 +223,7 @@ public sealed partial class ThunderSubtitleProvider
             ProviderName = DisplayName,
             Name = $"{rank}. {pick.CandidateName}",
             Format = pick.Extension.TrimStart('.'),
-            Comment = comment,
+            Comment = string.Join('\n', lines),
             ThreeLetterISOLanguageName = SavedLanguage,
             CommunityRating = rating,
             MachineTranslated = machine,

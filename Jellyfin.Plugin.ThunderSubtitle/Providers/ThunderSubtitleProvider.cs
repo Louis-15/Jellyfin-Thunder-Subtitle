@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
@@ -31,25 +32,46 @@ public sealed partial class ThunderSubtitleProvider : ISubtitleProvider
     private readonly ThunderClient _thunder;
     private readonly ILibraryContext _libraryContext;
     private readonly HintStore _hints;
+    private readonly ProvenanceStore _provenance;
     private readonly PluginLog _log;
+
+    /// <summary>
+    /// 手动搜索到下载之间临时保存的 AI 结论。
+    ///
+    /// 为什么不在搜索时直接写台账：搜索只是「看看有哪些」，用户可能一份都不下；
+    /// 而真正落盘发生在 Jellyfin 调用 <see cref="GetSubtitles"/> 之后，那时已经拿不到
+    /// <see cref="AiVerdict"/> 了。用短命的内存表把结论带过去，下载时再写进台账。
+    ///
+    /// 键是 id 去掉四字符前缀后的 base64 载荷，这样用户点「简」把 tm1- 换成 tm2-
+    /// 之后仍然命中同一条记录。
+    ///
+    /// 用 static 而不是实例字段：Jellyfin 解析字幕提供者的方式可能是每次新实例，
+    /// Search 与 GetSubtitles 未必落在同一个对象上；静态表才能保证两边命中。
+    /// </summary>
+    private static readonly ConcurrentDictionary<string, PendingManualAi> ManualAi = new(StringComparer.Ordinal);
+
+    private static readonly TimeSpan ManualAiLifetime = TimeSpan.FromMinutes(30);
 
     /// <summary>Initializes a new instance of the <see cref="ThunderSubtitleProvider"/> class.</summary>
     /// <param name="finder">The shared search pipeline.</param>
     /// <param name="thunder">Used to fetch the chosen candidate again.</param>
     /// <param name="libraryContext">Tells which library the item belongs to, so the configured search mode applies.</param>
     /// <param name="hints">手动搜索对话框里填的附加提示词。</param>
+    /// <param name="provenance">字幕台账：记住下载时用的是哪份候选、AI 怎么评价的。</param>
     /// <param name="logger">Logger.</param>
     public ThunderSubtitleProvider(
         ISubtitleFinder finder,
         ThunderClient thunder,
         ILibraryContext libraryContext,
         HintStore hints,
+        ProvenanceStore provenance,
         Microsoft.Extensions.Logging.ILogger<ThunderSubtitleProvider> logger)
     {
         _finder = finder;
         _thunder = thunder;
         _libraryContext = libraryContext;
         _hints = hints;
+        _provenance = provenance;
         _log = new PluginLog(logger);
     }
 
@@ -88,20 +110,26 @@ public sealed partial class ThunderSubtitleProvider : ISubtitleProvider
         var extension = SubtitleText.DetectExtension(decoded.Text, Path.GetExtension(name))
                         ?? throw new InvalidOperationException("下载到的内容不是受支持的字幕格式。");
 
-        var text = decoded.Text;
+        // 原文字形要在转换前判定：转成简体之后就再也看不出它是从繁体还是混用来的了。
+        var originalText = decoded.Text;
+        var originalScript = ChineseScriptDetector.Detect(SubtitleContent.StripMarkup(originalText));
+
+        var text = originalText;
         if (simplify)
         {
             // 用户点了「简」：把繁体（或简繁混用）转成简体再写盘。
             // 这里不判断「有没有繁体」——用户既然点了，就按他的意思统一成简体，
             // 哪怕已经是简体，转换也是幂等的。
-            var before = ChineseScriptDetector.Detect(SubtitleContent.StripMarkup(text));
             text = SimplifiedConverter.ToSimplified(text);
-            _log.Info($"手动下载：{name} 按用户要求转简体（原字形 {ChineseScriptDetector.DisplayName(before)}）。");
+            _log.Info($"手动下载：{name} 按用户要求转简体（原字形 {ChineseScriptDetector.DisplayName(originalScript)}）。");
         }
 
         _log.Info($"手动下载：{name}（{decoded.EncodingName} → utf-8）。");
 
+        var payload = new UTF8Encoding(false).GetBytes(SubtitleText.Normalize(text) + "\n");
+
         RemoveOldSubtitles(mediaPath);
+        RecordManualDownload(id, mediaPath, extension, name, originalText, originalScript, payload.Length, simplify);
 
         return new SubtitleResponse
         {
@@ -109,11 +137,128 @@ public sealed partial class ThunderSubtitleProvider : ISubtitleProvider
             Format = extension.TrimStart('.'),
             IsForced = false,
             IsHearingImpaired = false,
-            Stream = new MemoryStream(
-                new UTF8Encoding(false).GetBytes(SubtitleText.Normalize(text) + "\n"),
-                writable: false)
+            Stream = new MemoryStream(payload, writable: false)
         };
     }
+
+    /// <summary>
+    /// 手动下载也要写台账，否则「我的字幕」卡片只能看到字形，看不到 AI 评分和评语。
+    ///
+    /// Jellyfin 是在本方法返回之后才把流写到磁盘的，所以这里只能按命名规则预测路径
+    /// （<c>&lt;片名&gt;.chi.&lt;ext&gt;</c>）；写失败时台账里会留下一条指向不存在文件的记录，
+    /// 但「我的字幕」只会为真实存在的字幕流查询，不会显示脏数据。
+    /// </summary>
+    private void RecordManualDownload(
+        string id,
+        string? mediaPath,
+        string extension,
+        string candidateName,
+        string originalText,
+        ChineseScript originalScript,
+        int payloadLength,
+        bool simplify)
+    {
+        if (string.IsNullOrWhiteSpace(mediaPath))
+        {
+            return;
+        }
+
+        var itemId = _libraryContext.ItemIdForPath(mediaPath);
+        if (itemId is null)
+        {
+            return;
+        }
+
+        try
+        {
+            var cues = SubtitleContent.Parse(originalText, extension);
+            var language = SubtitleLanguageDetector.Detect(cues, SubtitleContent.StripMarkup(originalText));
+            var ai = FindManualAi(id);
+
+            _provenance.Set(new SubtitleProvenance(
+                itemId.Value.ToString("N"),
+                string.Empty,
+                Sidecar.TargetPath(mediaPath, extension),
+                candidateName,
+                payloadLength,
+                SubtitleRanker.CountAiMarkers(candidateName),
+                DateTimeOffset.UtcNow,
+                string.Empty,
+                language.ToString(),
+                ai?.Score,
+                ai?.Source ?? string.Empty,
+                ai?.Typos ?? 0,
+                ai?.PromptVersion ?? 0,
+                ai?.Reason ?? string.Empty,
+                ai?.Machine,
+                ai?.Absolute ?? false,
+                simplify && ChineseScriptDetector.NeedsConversion(originalScript)
+                    ? ChineseScriptDetector.DisplayName(originalScript)
+                    : string.Empty));
+        }
+        catch (Exception ex)
+        {
+            // 台账只是界面用的附加信息，绝不能因为它让下载失败。
+            _log.Warn($"手动下载：记录字幕台账失败（{ex.Message}），文件仍会正常写入。");
+        }
+    }
+
+    /// <summary>记住一次手动搜索里某份候选的 AI 结论，等用户点下载时再写进台账。</summary>
+    private static void RememberManualAi(string id, AiVerdict verdict, bool absolute)
+    {
+        PruneManualAi();
+        ManualAi[ManualAiKey(id)] = new PendingManualAi(
+            verdict.Score,
+            verdict.Reason,
+            verdict.MachineTranslated,
+            absolute,
+            verdict.EffectiveSource,
+            verdict.Typos,
+            AiPrompts.Version,
+            DateTimeOffset.UtcNow);
+    }
+
+    private static PendingManualAi? FindManualAi(string id)
+    {
+        return ManualAi.TryGetValue(ManualAiKey(id), out var info)
+               && info.At >= DateTimeOffset.UtcNow - ManualAiLifetime
+            ? info
+            : null;
+    }
+
+    private static void PruneManualAi()
+    {
+        var cutoff = DateTimeOffset.UtcNow - ManualAiLifetime;
+        foreach (var pair in ManualAi)
+        {
+            if (pair.Value.At < cutoff)
+            {
+                ManualAi.TryRemove(pair.Key, out _);
+            }
+        }
+    }
+
+    /// <summary>
+    /// 去掉 id 的四字符前缀（<c>tm1-</c> / <c>tm2-</c>），只留 base64 载荷。
+    /// 用户点「简」只会换前缀，载荷不变；按载荷做键才能让下载命中搜索时记下的结论。
+    /// </summary>
+    private static string ManualAiKey(string id)
+    {
+        var normalized = SubtitleId.NormalizeIncoming(id);
+        return normalized.Length > 4 && normalized[3] == '-'
+            ? normalized[4..]
+            : normalized;
+    }
+
+    private sealed record PendingManualAi(
+        double Score,
+        string Reason,
+        bool Machine,
+        bool Absolute,
+        string Source,
+        int Typos,
+        int PromptVersion,
+        DateTimeOffset At);
 
     /// <summary>
     /// Whether the requested language is Chinese. Jellyfin passes a display name such as

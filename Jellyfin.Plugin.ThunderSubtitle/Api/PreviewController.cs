@@ -267,17 +267,18 @@ public sealed class PreviewController : ControllerBase
     /// <summary>
     /// 客户端脚本拆成多个文件，这里按固定顺序拼起来。
     ///
-    /// 顺序有意义：后两个文件都从 <c>window.__ts</c> 取工具函数，
-    /// 而它由第一个文件建立。反过来拼会直接抛异常。
+    /// 顺序有意义：第一个文件建立 <c>window.__ts</c>，Card.js 往里加卡片排版与胶囊工具，
+    /// Rows.js / Hint.js 再使用它们。反过来拼会直接抛异常。
     /// </summary>
     private static readonly string[] ClientScriptFiles =
     [
         ".clientScript.js",
+        ".clientScript.Card.js",
         ".clientScript.Rows.js",
         ".clientScript.Hint.js"
     ];
 
-    private static string LoadClientScript()
+    internal static string LoadClientScript()
     {
         var assembly = typeof(PreviewController).Assembly;
         var names = assembly.GetManifestResourceNames();

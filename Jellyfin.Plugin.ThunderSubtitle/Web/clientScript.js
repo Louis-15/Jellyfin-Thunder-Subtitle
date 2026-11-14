@@ -249,10 +249,21 @@
             'padding:.45em .6em;border-radius:.25em;border:1px solid rgba(255,255,255,.22);',
             'background:rgba(255,255,255,.06);color:inherit;font:inherit;}',
             '.tsHintState{margin-top:.3rem;font-size:.8em;color:#9aa0a6;min-height:1.1em;}',
-            // 字形标签：复用 Jellyfin 原生的 pillow 排版，只换配色（紫色），
-            // 与原生「机器翻译 / AI 翻译」的蓝色一眼区分开。
-            '.subtitleFeaturePillow.tsScriptPillow{background:#7c4dff;color:#fff;border-color:#7c4dff;',
+            // 标签配色统一成「好绿 / 一般橙 / 差红」：
+            // 机器翻译、繁体是红色；简繁混用是橙色；人工翻译、简体 / 简英双语是绿色。
+            // 复用 Jellyfin 原生的 .subtitleFeaturePillow 排版，只换底色，
+            // 尺寸、圆角、对齐都与原生「机器翻译」一致。
+            '.subtitleFeaturePillow.tsPill{background:#546e7a;color:#fff;border:1px solid transparent;',
             'margin-right:.45em;cursor:default;}',
+            '.subtitleFeaturePillow.tsPillGood{background:#2e7d32;color:#fff;border-color:#2e7d32;}',
+            '.subtitleFeaturePillow.tsPillWarn{background:#d84315;color:#fff;border-color:#d84315;}',
+            '.subtitleFeaturePillow.tsPillBad{background:#c62828;color:#fff;border-color:#c62828;}',
+            // 评分胶囊加粗一点：同一行里它和语言标签含义不同，扫一眼要能分开。
+            '.subtitleFeaturePillow.tsPillScore{font-weight:600;}',
+            // 第 1 行文件名后面的「格式 / 字数 / 条数 / 大小」。
+            '.tsRowStats{margin-left:.6em;font-size:.85em;font-weight:400;color:#9aa0a6;}',
+            // 第 2 行的胶囊容器：标签多时允许换行，不能撑破卡片。
+            '.tsRowBadges{display:flex;flex-wrap:wrap;align-items:center;}',
             // 「简」按钮用文字图标：material-icons 里没有对应汉字，
             // 而用户明确要求图标内容就是「简」字。
             '.tsGlyphIcon{font-family:inherit;font-size:.95rem;font-weight:600;line-height:1;}',

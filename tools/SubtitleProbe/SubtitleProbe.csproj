@@ -24,6 +24,15 @@
     <Compile Include="..\..\Jellyfin.Plugin.ThunderSubtitle\Core\MediaKind.cs" Link="Core\MediaKind.cs" />
     <Compile Include="..\..\Jellyfin.Plugin.ThunderSubtitle\Core\LanguagePolicy.cs" Link="Core\LanguagePolicy.cs" />
     <Compile Include="..\..\Jellyfin.Plugin.ThunderSubtitle\Core\SubtitleModels.cs" Link="Core\SubtitleModels.cs" />
+    <!--
+      字形判定（ChineseScript）是 SubtitleModels 的字段类型，SimplifiedConverter / SimplifiedTable
+      又是它判断繁简的依据，三者必须一起链接进来，否则 probe 会报 CS0246。
+      上次新增字形功能时漏了这三行，导致「全量编译」和 SubtitleProbe 离线自检都无法运行；
+      它们都不依赖 Jellyfin，可以直接编进来。
+    -->
+    <Compile Include="..\..\Jellyfin.Plugin.ThunderSubtitle\Core\ChineseScript.cs" Link="Core\ChineseScript.cs" />
+    <Compile Include="..\..\Jellyfin.Plugin.ThunderSubtitle\Core\SimplifiedConverter.cs" Link="Core\SimplifiedConverter.cs" />
+    <Compile Include="..\..\Jellyfin.Plugin.ThunderSubtitle\Core\SimplifiedTable.cs" Link="Core\SimplifiedTable.cs" />
     <Compile Include="..\..\Jellyfin.Plugin.ThunderSubtitle\Core\SubtitleHealth.cs" Link="Core\SubtitleHealth.cs" />
     <Compile Include="..\..\Jellyfin.Plugin.ThunderSubtitle\Core\SubtitleRanker.cs" Link="Core\SubtitleRanker.cs" />
     <Compile Include="..\..\Jellyfin.Plugin.ThunderSubtitle\Core\SubtitleRanker.Health.cs" Link="Core\SubtitleRanker.Health.cs" />
