@@ -132,7 +132,7 @@ public class MediaKindResolverTests
     public void DisplayNamesAreChinese()
     {
         Assert.Equal("中文影视", MediaKindResolver.DisplayName(MediaKind.Chinese));
-        Assert.Equal("日本AV", MediaKindResolver.DisplayName(MediaKind.JapaneseAv));
+        Assert.Equal("番号类影片", MediaKindResolver.DisplayName(MediaKind.JapaneseAv));
         Assert.Equal("非中文影视", MediaKindResolver.DisplayName(MediaKind.Foreign));
     }
 }

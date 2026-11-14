@@ -339,6 +339,47 @@ public class ThunderSubtitleProviderTests
         await Assert.ThrowsAsync<ArgumentException>(() => provider.GetSubtitles(id, CancellationToken.None));
     }
 
+    /// <summary>
+    /// 清理旧字幕只能删本插件命名的 <c>&lt;片名&gt;.chi.&lt;ext&gt;</c>。
+    /// 这条用例守着硬约束 1：网盘同步的 <c>.zh.srt</c> / <c>.zho.srt</c>，以及
+    /// Jellyfin 为避免重名生成的 <c>.chi.0.srt</c> 冲突副本，都不能被顺手删掉。
+    /// </summary>
+    [Fact]
+    public void RemoveOldSubtitlesOnlyDeletesPluginOwnedFiles()
+    {
+        var dir = Path.Combine(Path.GetTempPath(), "ts-remove-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(dir);
+        try
+        {
+            var media = Path.Combine(dir, "Movie.mkv");
+            File.WriteAllText(media, string.Empty);
+
+            var pluginSrt = Path.Combine(dir, "Movie.chi.srt");
+            var pluginAss = Path.Combine(dir, "Movie.chi.ass");
+            var userZh = Path.Combine(dir, "Movie.zh.srt");
+            var userZho = Path.Combine(dir, "Movie.zho.srt");
+            var bare = Path.Combine(dir, "Movie.srt");
+            var conflictCopy = Path.Combine(dir, "Movie.chi.0.srt");
+            foreach (var path in new[] { pluginSrt, pluginAss, userZh, userZho, bare, conflictCopy })
+            {
+                File.WriteAllText(path, "1\n00:00:01,000 --> 00:00:02,000\n测试\n");
+            }
+
+            Create(new FakeFinder()).RemoveOldSubtitles(media);
+
+            Assert.False(File.Exists(pluginSrt));
+            Assert.False(File.Exists(pluginAss));
+            Assert.True(File.Exists(userZh));
+            Assert.True(File.Exists(userZho));
+            Assert.True(File.Exists(bare));
+            Assert.True(File.Exists(conflictCopy));
+        }
+        finally
+        {
+            Directory.Delete(dir, recursive: true);
+        }
+    }
+
     [Fact]
     public async Task SearchUsesTheHintStoredForThisItem()
     {

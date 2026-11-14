@@ -151,7 +151,7 @@ public static class MediaKindResolver
     public static string DisplayName(MediaKind kind) => kind switch
     {
         MediaKind.Chinese => "中文影视",
-        MediaKind.JapaneseAv => "日本AV",
+        MediaKind.JapaneseAv => "番号类影片",
         _ => "非中文影视"
     };
 

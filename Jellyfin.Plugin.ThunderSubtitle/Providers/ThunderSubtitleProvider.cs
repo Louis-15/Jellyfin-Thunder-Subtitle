@@ -317,11 +317,12 @@ public sealed partial class ThunderSubtitleProvider : ISubtitleProvider
     };
 
     /// <summary>
-    /// Deletes the Chinese subtitles already sitting next to the video, so Jellyfin writes the
-    /// freshly picked one under the canonical name instead of adding <c>.0</c>, <c>.1</c>, ...
+    /// Deletes the plugin-owned <c>.chi.*</c> subtitles already sitting next to the video,
+    /// so Jellyfin writes the freshly picked one under the canonical name instead of adding
+    /// <c>.0</c>, <c>.1</c>, ... User-provided <c>.zh.srt</c> / <c>.zho.srt</c> files are never touched.
     /// </summary>
     /// <param name="mediaPath">Path of the video.</param>
-    private void RemoveOldSubtitles(string mediaPath)
+    internal void RemoveOldSubtitles(string mediaPath)
     {
         if (string.IsNullOrWhiteSpace(mediaPath))
         {
@@ -330,6 +331,14 @@ public sealed partial class ThunderSubtitleProvider : ISubtitleProvider
 
         foreach (var file in SubtitleFiles.FindChinese(mediaPath))
         {
+            // 只删除本插件命名的 <片名>.chi.<ext>。
+            // 网盘同步的 <片名>.zh.srt / <片名>.zho.srt 等属于用户资源，
+            // 即使语言也是中文也绝不能碰（硬约束 1）。
+            if (!Sidecar.IsPluginSubtitle(mediaPath, file))
+            {
+                continue;
+            }
+
             try
             {
                 File.Delete(file);

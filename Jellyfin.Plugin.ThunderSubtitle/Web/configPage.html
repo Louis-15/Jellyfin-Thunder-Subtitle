@@ -93,7 +93,7 @@
                         <p class="fieldDescription">
                             <strong>语言偏好按影片类型自动决定，不需要手动选：</strong>
                             非中文影视优先「简英双语」，其次纯简体，最后繁体；
-                            中文影视优先纯简体，其次纯繁体；日本AV 优先纯简体，其次纯繁体。
+                            中文影视优先纯简体，其次纯繁体；番号类影片优先纯简体，其次纯繁体。
                             英文、日文等非中文候选一律丢弃。
                         </p>
                         <div class="checkboxContainer checkboxContainer-withDescription">
@@ -188,7 +188,7 @@
                             <div class="inputContainer">
                                 <label class="inputLabel inputLabelUnfocused" for="AiAlignedCues">每段台词条数</label>
                                 <input is="emby-input" id="AiAlignedCues" type="number" min="4" max="20" step="1" />
-                                <div class="fieldDescription">非中文影视与日本AV 用这个值，默认 8。</div>
+                                <div class="fieldDescription">非中文影视与番号类影片用这个值，默认 8。</div>
                             </div>
                             <div class="inputContainer">
                                 <label class="inputLabel inputLabelUnfocused" for="AiCjkAlignedCues">中文影视每段条数</label>
@@ -203,7 +203,7 @@
                         <div class="ts-grid">
                             <div class="inputContainer">
                                 <label class="inputLabel inputLabelUnfocused" for="AiSimplifiedAcceptScore">
-                                    日本AV 简体合格分
+                                    番号类影片简体合格分
                                 </label>
                                 <input is="emby-input" id="AiSimplifiedAcceptScore" type="number" min="0" max="100" step="5" />
                                 <div class="fieldDescription">
@@ -236,9 +236,9 @@
                                 <span>自动补全时自动繁转简</span>
                             </label>
                             <div class="fieldDescription checkboxFieldDescription">
-                                日本AV 与中文影视默认简体优先。打开后，若繁体版分数高出
+                                番号类影片与中文影视默认简体优先。打开后，若繁体版分数高出
                                 <strong>「非中文影视跨档分差」</strong>那么多，就改用繁体那份，
-                                写入时自动转成简体 —— 你看的仍是简体，读到的却是更好的译本。默认关闭。
+                                写入时自动转成简体。最终写入的仍是简体字幕，但译文质量更高。默认关闭。
                             </div>
                         </div>
 
