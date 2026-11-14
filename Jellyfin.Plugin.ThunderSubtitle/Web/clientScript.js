@@ -141,10 +141,6 @@
             return;
         }
 
-        if (row.querySelector('[' + PREVIEW_ATTR + ']')) {
-            return;
-        }
-
         var info = TS.parseRow(row.getAttribute('data-subid'));
         if (!info) {
             return;
@@ -152,6 +148,21 @@
 
         var download = row.querySelector('.btnDownload');
         if (!download) {
+            return;
+        }
+
+        // 字形标签与「简」按钮（clientScript.Rows.js）。
+        //
+        // 这里必须调用，不能只在预览按钮的点击回调里做装饰：
+        // 早先拆文件时漏了这一步，结果是眼睛按钮出来了、紫色标签和「简」按钮永远不出来，
+        // 正是 0.2 节那个「只有眼睛和下载」的现象。
+        // decorateResultRow 自己按 data-ts / .tsScriptPillow 做幂等，重复扫描不会叠加。
+        if (TS.decorateResultRow) {
+            TS.decorateResultRow(row, info);
+        }
+
+        // 预览按钮单独判重：标签可能已经挂上，但眼睛按钮还没插（例如上一次插入失败）。
+        if (row.querySelector('[' + PREVIEW_ATTR + ']')) {
             return;
         }
 
@@ -183,12 +194,6 @@
         var download = row.querySelector('.btnDownload');
         var raw = download ? download.getAttribute('data-subid') : null;
         TS.openPreview(raw || fallback, row);
-
-        // 「我的字幕」那一行的紫色标签与「简」按钮由 clientScript.Rows.js 负责，
-        // 这里只处理搜索结果行。
-        if (TS.decorateResultRow) {
-            TS.decorateResultRow(row, info);
-        }
     }
 
     /// 扫描搜索结果里的行（本插件生成的候选）。

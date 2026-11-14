@@ -1,4 +1,5 @@
 using System;
+using System.IO;
 using System.Linq;
 using Jellyfin.Plugin.ThunderSubtitle.Core;
 using Jellyfin.Plugin.ThunderSubtitle.Providers;
@@ -158,5 +159,23 @@ public class PreviewTests
         Assert.Equal(2, preview.CueCount);
         Assert.True(preview.ContentChars > 5);
         Assert.Equal(SubtitleLanguage.SimplifiedChinese, preview.Language);
+    }
+
+    [Fact]
+    public void ShippedClientScriptDecoratesSearchRows()
+    {
+        // 守住 2026-11-14 那个 bug：行增强拆到 clientScript.Rows.js 时，
+        // clientScript.js 的 enhance() 漏掉了对 decorateResultRow 的调用。
+        // 结果是眼睛按钮照常出现，紫色字形标签和「简」按钮却永远不出现。
+        // 单元测试跑不到浏览器，这里只守住一件事：服务器实际下发的那份脚本里，
+        // 这个调用确实存在（Rows.js 定义、clientScript.js 调用，少一半都不行）。
+        var assembly = typeof(SubtitleId).Assembly;
+        var resource = assembly.GetManifestResourceNames()
+            .Single(name => name.EndsWith(".clientScript.js", StringComparison.Ordinal));
+
+        using var stream = assembly.GetManifestResourceStream(resource)!;
+        using var reader = new StreamReader(stream);
+
+        Assert.Contains("TS.decorateResultRow(row, info)", reader.ReadToEnd(), StringComparison.Ordinal);
     }
 }
