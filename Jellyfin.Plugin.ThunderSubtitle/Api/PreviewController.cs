@@ -6,6 +6,8 @@ using System.Threading;
 using System.Threading.Tasks;
 using Jellyfin.Plugin.ThunderSubtitle.Core;
 using Jellyfin.Plugin.ThunderSubtitle.Providers;
+using MediaBrowser.Controller.Library;
+using MediaBrowser.Model.Entities;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
@@ -27,20 +29,24 @@ public sealed class PreviewController : ControllerBase
 
     private readonly ThunderClient _thunder;
     private readonly PreviewTextCache _cache;
+    private readonly ILibraryManager _library;
     private readonly PluginLog _log;
     private int _clientServed;
 
     /// <summary>Initializes a new instance of the <see cref="PreviewController"/> class.</summary>
     /// <param name="thunder">Used to fetch the candidate again.</param>
     /// <param name="cache">In-memory store of previewed texts.</param>
+    /// <param name="library">Used by <see cref="Stream"/> to resolve an item id to its subtitle files.</param>
     /// <param name="logger">Logger.</param>
     public PreviewController(
         ThunderClient thunder,
         PreviewTextCache cache,
+        ILibraryManager library,
         Microsoft.Extensions.Logging.ILogger<PreviewController> logger)
     {
         _thunder = thunder;
         _cache = cache;
+        _library = library;
         _log = new PluginLog(logger);
     }
 
@@ -68,7 +74,7 @@ public sealed class PreviewController : ControllerBase
     public async Task<IActionResult> Text([FromQuery] string? id, CancellationToken cancellationToken)
     {
         var key = SubtitleId.NormalizeIncoming(id);
-        if (!SubtitleId.TryDecode(key, out var uri, out _, out _) || uri is null)
+        if (!SubtitleId.TryDecode(key, out var uri, out _, out _, out var simplify) || uri is null)
         {
             return Error(StatusCodes.Status400BadRequest, "无法识别的字幕标识。");
         }
@@ -78,7 +84,11 @@ public sealed class PreviewController : ControllerBase
             return Error(StatusCodes.Status400BadRequest, "字幕地址不在允许的域名内。");
         }
 
-        var cached = _cache.Get(key);
+        // 缓存键带上「要不要转简」：同一份候选的原文与简体版是两份不同的内容，
+        // 共用一个键会让用户点了「简」之后预览到没转的那份。
+        var cacheKey = simplify ? key + "|zhs" : key;
+
+        var cached = _cache.Get(cacheKey);
         if (cached is not null)
         {
             return JsonResult(cached);
@@ -100,15 +110,19 @@ public sealed class PreviewController : ControllerBase
                 return Error(StatusCodes.Status502BadGateway, "下载到的内容不是受支持的字幕格式。");
             }
 
-            var stats = SubtitleContent.Measure(decoded.Text, extension);
+            // 「简」按钮只是一个开关：点了之后预览与下载都用转简版的 id，
+            // 这里转完只在内存里返回，绝不写盘 —— 用户要先看效果再决定下不下载。
+            var text = simplify ? SimplifiedConverter.ToSimplified(decoded.Text) : decoded.Text;
+
+            var stats = SubtitleContent.Measure(text, extension);
             preview = new PreviewText(
                 SubtitleId.DecodeName(key),
                 extension.TrimStart('.'),
                 decoded.EncodingName,
-                SubtitleText.Normalize(decoded.Text),
+                SubtitleText.Normalize(text),
                 stats.CueCount,
                 stats.ContentChars,
-                SubtitleLanguageDetector.Detect(SubtitleContent.StripMarkup(decoded.Text)));
+                SubtitleLanguageDetector.Detect(SubtitleContent.StripMarkup(text)));
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
@@ -122,6 +136,80 @@ public sealed class PreviewController : ControllerBase
 
         _cache.Put(key, preview);
         _log.Info($"预览：{preview.Name}（{preview.CueCount} 条 / {preview.ContentChars} 字，{preview.EncodingName}），仅内存，未落盘。");
+        return JsonResult(preview);
+    }
+
+    /// <summary>
+    /// 读取「我的字幕」里一份本地字幕的全文。
+    ///
+    /// 与 <see cref="Text"/> 的区别：那边是「下载一份远程候选到内存里看」，
+    /// 这边是「读磁盘上已经存在的那份」。用户要对比已有字幕和新候选，
+    /// 没有这个端点就只能看到候选，看不到手上那份。
+    ///
+    /// 只读，绝不写盘。内嵌字幕没有独立文件，返回 400 并说明原因。
+    /// </summary>
+    /// <param name="itemId">The video item id.</param>
+    /// <param name="index">Media stream index of the subtitle.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>Full subtitle text, in the same shape as <see cref="Text"/>.</returns>
+    [Authorize]
+    [HttpGet("Stream")]
+    public async Task<IActionResult> Stream(
+        [FromQuery] Guid itemId,
+        [FromQuery] int index,
+        CancellationToken cancellationToken)
+    {
+        var item = _library.GetItemById(itemId);
+        if (item is null)
+        {
+            return Error(StatusCodes.Status404NotFound, "找不到影片条目。");
+        }
+
+        string? path = null;
+        foreach (var stream in item.GetMediaStreams())
+        {
+            if (stream.Type == MediaStreamType.Subtitle && stream.Index == index)
+            {
+                path = stream.Path;
+                break;
+            }
+        }
+
+        if (string.IsNullOrWhiteSpace(path))
+        {
+            return Error(StatusCodes.Status400BadRequest, "这条字幕是内嵌的，没有独立文件可以预览。");
+        }
+
+        byte[] bytes;
+        try
+        {
+            bytes = await System.IO.File.ReadAllBytesAsync(path, cancellationToken).ConfigureAwait(false);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            return Error(StatusCodes.Status500InternalServerError, $"读取失败：{ex.Message}");
+        }
+
+        var decoded = SubtitleText.TryDecode(bytes);
+        if (decoded is null)
+        {
+            return Error(StatusCodes.Status415UnsupportedMediaType, "这个文件不是文本字幕，无法预览。");
+        }
+
+        var extension = SubtitleText.DetectExtension(decoded.Text, Path.GetExtension(path))
+                        ?? SubtitleText.NormalizeExtension(Path.GetExtension(path));
+
+        var stats = SubtitleContent.Measure(decoded.Text, extension);
+        var preview = new PreviewText(
+            Path.GetFileName(path),
+            extension.TrimStart('.'),
+            decoded.EncodingName,
+            SubtitleText.Normalize(decoded.Text),
+            stats.CueCount,
+            stats.ContentChars,
+            SubtitleLanguageDetector.Detect(SubtitleContent.StripMarkup(decoded.Text)));
+
+        _log.Info($"预览已有字幕：{preview.Name}（{preview.CueCount} 条 / {preview.ContentChars} 字），只读，未落盘。");
         return JsonResult(preview);
     }
 
@@ -176,29 +264,57 @@ public sealed class PreviewController : ControllerBase
         throw new InvalidOperationException($"找不到内嵌资源：{suffix}");
     }
 
+    /// <summary>
+    /// 客户端脚本拆成多个文件，这里按固定顺序拼起来。
+    ///
+    /// 顺序有意义：后两个文件都从 <c>window.__ts</c> 取工具函数，
+    /// 而它由第一个文件建立。反过来拼会直接抛异常。
+    /// </summary>
+    private static readonly string[] ClientScriptFiles =
+    [
+        ".clientScript.js",
+        ".clientScript.Rows.js",
+        ".clientScript.Hint.js"
+    ];
+
     private static string LoadClientScript()
     {
         var assembly = typeof(PreviewController).Assembly;
-        const string Suffix = ".clientScript.js";
+        var names = assembly.GetManifestResourceNames();
+        var builder = new StringBuilder();
 
-        foreach (var name in assembly.GetManifestResourceNames())
+        foreach (var suffix in ClientScriptFiles)
         {
-            if (!name.EndsWith(Suffix, StringComparison.OrdinalIgnoreCase))
+            var found = false;
+
+            foreach (var name in names)
             {
-                continue;
+                // 用「文件名精确匹配」而不是 EndsWith：clientScript.js 的后缀
+                // 也能匹配上 clientScript.Rows.js 以外的一切，容易串。
+                if (!name.EndsWith(suffix, StringComparison.Ordinal))
+                {
+                    continue;
+                }
+
+                using var stream = assembly.GetManifestResourceStream(name);
+                if (stream is null)
+                {
+                    continue;
+                }
+
+                using var reader = new StreamReader(stream, Encoding.UTF8);
+                builder.Append(reader.ReadToEnd()).Append('\n');
+                found = true;
+                break;
             }
 
-            using var stream = assembly.GetManifestResourceStream(name);
-            if (stream is null)
+            if (!found)
             {
-                continue;
+                throw new InvalidOperationException($"找不到内嵌资源：{suffix}");
             }
-
-            using var reader = new StreamReader(stream, Encoding.UTF8);
-            return reader.ReadToEnd();
         }
 
-        throw new InvalidOperationException("找不到内嵌的预览脚本资源。");
+        return builder.ToString();
     }
 
     private IActionResult JsonResult(PreviewText preview)

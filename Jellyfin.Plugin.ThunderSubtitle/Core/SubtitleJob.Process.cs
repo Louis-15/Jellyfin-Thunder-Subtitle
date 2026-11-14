@@ -165,6 +165,19 @@ public sealed partial class SubtitleJob
         return true;
     }
 
+    /// <summary>
+    /// 最终要写进文件的文本。
+    ///
+    /// 只有「自动繁转简」选中的那份会走到转换分支：排序阶段已经确认
+    /// 繁体版的译文明显更好，转成简体只是为了统一字形，代价（少量歧义字误转）远小于收益。
+    /// </summary>
+    /// <param name="best">The chosen candidate.</param>
+    /// <returns>Text to write.</returns>
+    private static string TextToWrite(SubtitlePick best)
+    {
+        return best.Simplify ? SimplifiedConverter.ToSimplified(best.Text) : best.Text;
+    }
+
     private async Task WriteAsync(
         BaseItem item,
         string mediaPath,
@@ -180,9 +193,11 @@ public sealed partial class SubtitleJob
             _log.Info($"{Display(item)} [{code}]：删除旧扩展名字幕「{Path.GetFileName(stale)}」。");
         }
 
-        var payload = Utf8NoBom.GetBytes(SubtitleText.Normalize(best.Text) + "\n");
+        var payload = Utf8NoBom.GetBytes(SubtitleText.Normalize(TextToWrite(best)) + "\n");
         await Sidecar.WriteAtomicAsync(target, payload, cancellationToken).ConfigureAwait(false);
-        _log.Info($"{Display(item)} [{code}]：写入「{Path.GetFileName(target)}」{payload.Length} B（{best.EncodingName} → utf-8）。");
+
+        var note = best.Simplify ? "，已按要求繁转简" : string.Empty;
+        _log.Info($"{Display(item)} [{code}]：写入「{Path.GetFileName(target)}」{payload.Length} B（{best.EncodingName} → utf-8{note}）。");
 
         _provenance.Set(new SubtitleProvenance(
             ItemKey(item),

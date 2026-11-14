@@ -2,23 +2,29 @@
  * Injected into jellyfin-web's index.html at request time.
  *
  * Jellyfin's "修改字幕 → 搜索字幕" dialog is compiled into the web client, so a plugin cannot
- * add a row action from the server side. This script waits for the dialog to render, puts a
- * preview button next to each result's download button, and shows the whole subtitle file in an
- * overlay. Nothing is written next to the video: the text is fetched and decoded in memory.
+ * add a row action from the server side. This script waits for the dialog to render, puts
+ * preview / 繁转简 buttons on the rows, and shows the whole subtitle file in an overlay.
+ * Nothing is written next to the video: the text is fetched and decoded in memory.
+ *
+ * 拆成三个文件由服务端按顺序拼接（核心 → 预览/行增强 → 附加提示词），
+ * 每个文件都是独立 IIFE，通过 window.__ts 共享工具函数：
+ * 单文件已经超过 450 行，再往里塞「我的字幕」行与紫色标签会破 600 行红线。
  */
-(function () {
+(function (TS) {
     'use strict';
 
-    if (window.__thunderSubtitleClient) {
+    if (TS.started) {
         return;
     }
 
-    window.__thunderSubtitleClient = true;
+    TS.started = true;
 
-    var ID_MARKER = 'ts1-';
+    // 字幕 id 的字形前缀：t + 字形(s/t/m) + 1(原样)/2(转简) + '-'
+    // 与 Providers/ThunderSubtitleProvider.cs 的 ScriptMarkers 一一对应。
+    TS.SCRIPT_MARKERS = ['ts1-', 'ts2-', 'tt1-', 'tt2-', 'tm1-', 'tm2-'];
+
     var BUTTON_CLASS = 'btnThunderPreview';
     var STYLE_ID = 'thunderSubtitlePreviewStyle';
-    var HINT_CLASS = 'tsHintBox';
 
     // document.currentScript is only available while this file executes, so capture it now:
     // it is the fallback for the API root when window.ApiClient is not exposed.
@@ -26,23 +32,23 @@
     var overlay = null;
     var wrapEnabled = true;
 
-    function apiRoot() {
+    TS.apiRoot = function () {
         var index = SCRIPT_SRC.indexOf('/ThunderSubtitle/');
         return index >= 0 ? SCRIPT_SRC.substring(0, index) : '';
-    }
+    };
 
-    function queryString(params) {
+    TS.queryString = function (params) {
         var parts = [];
         for (var key in params) {
-            if (Object.prototype.hasOwnProperty.call(params, key)) {
+            if (Object.prototype.hasOwnProperty.call(params, key) && params[key] != null) {
                 parts.push(encodeURIComponent(key) + '=' + encodeURIComponent(params[key]));
             }
         }
 
         return parts.length ? '?' + parts.join('&') : '';
-    }
+    };
 
-    function apiUrl(name, params) {
+    TS.apiUrl = function (name, params) {
         var client = window.ApiClient;
         if (client && typeof client.getUrl === 'function') {
             try {
@@ -52,11 +58,11 @@
             }
         }
 
-        var root = apiRoot();
-        return root ? root + '/ThunderSubtitle/' + name + queryString(params) : null;
-    }
+        var root = TS.apiRoot();
+        return root ? root + '/ThunderSubtitle/' + name + TS.queryString(params) : null;
+    };
 
-    function accessToken() {
+    TS.accessToken = function () {
         var client = window.ApiClient;
         try {
             if (client && typeof client.accessToken === 'function') {
@@ -89,28 +95,58 @@
         return null;
     }
 
-    // Jellyfin prefixes the provider id with an md5 of the provider name and an underscore.
-    function ourSubtitleId(raw) {
+    /// Jellyfin prefixes the provider id with an md5 of the provider name and an underscore.
+    /// Returns the marker info (字形 + 是否转简) or null for other providers' rows.
+    TS.parseRow = function (raw) {
         if (!raw) {
             return null;
         }
 
+        // id 有两种可能的形态，都试一次：
+        //   1. 带 md5 前缀：{32 位 md5}_{marker}{base64url}  ← Jellyfin 实际返回的就是这种
+        //   2. 不带前缀：{marker}{base64url}
+        // 之所以要试第二种，是因为 base64url 用 '_' 代替 '/'，id 自己就含下划线。
+        // 早先只认「第一个下划线之后」，一旦遇到没有前缀的 id 就会切在 base64 中间，
+        // 整行认不出来 —— 表现为既没有紫色标签、也没有「简」按钮。
+        // 只试这两个固定位置，不遍历所有下划线：base64 里偶然出现 "tm1-" 之类的
+        // 四字符模式并非不可能，无差别扫描会把别的 provider 的行也误认成我们的。
         var separator = raw.indexOf('_');
-        var payload = separator >= 0 ? raw.substring(separator + 1) : raw;
-        return payload.indexOf(ID_MARKER) === 0 ? raw : null;
-    }
+        var candidates = separator > 0 ? [raw.substring(separator + 1), raw] : [raw];
+
+        for (var c = 0; c < candidates.length; c++) {
+            var payload = candidates[c];
+            for (var i = 0; i < TS.SCRIPT_MARKERS.length; i++) {
+                var marker = TS.SCRIPT_MARKERS[i];
+                if (payload.indexOf(marker) === 0) {
+                    return {
+                        raw: raw,
+                        marker: marker,
+                        // s = 简体（不显示标签）, t = 繁体, m = 简繁混用
+                        script: marker.charAt(1),
+                        simplify: marker.charAt(2) === '2'
+                    };
+                }
+            }
+        }
+
+        return null;
+    };
+
+    /// 这一行是否已经挂过预览按钮。用 data 属性查，与 clientScript.Rows.js 保持一致：
+    /// 判断「这一行处理过没有」绝不能依赖 row 自身的 class（querySelector 看不到自身）。
+    var PREVIEW_ATTR = 'data-ts-preview';
 
     function enhance(row) {
         if (!row || row.tagName === 'BUTTON') {
             return;
         }
 
-        if (row.querySelector('.' + BUTTON_CLASS)) {
+        if (row.querySelector('[' + PREVIEW_ATTR + ']')) {
             return;
         }
 
-        var subtitleId = ourSubtitleId(row.getAttribute('data-subid'));
-        if (!subtitleId) {
+        var info = TS.parseRow(row.getAttribute('data-subid'));
+        if (!info) {
             return;
         }
 
@@ -123,8 +159,8 @@
         // customized built-in, which is what gives it the same look as Jellyfin's buttons.
         download.insertAdjacentHTML(
             'beforebegin',
-            '<button type="button" is="paper-icon-button-light" class="' + BUTTON_CLASS
-            + ' listItemButton" title="预览字幕全文（不会下载到影片文件夹）">'
+            '<button type="button" is="paper-icon-button-light" ' + PREVIEW_ATTR + '="1" class="'
+            + BUTTON_CLASS + ' listItemButton" title="预览字幕全文（不会下载到影片文件夹）">'
             + '<span class="material-icons visibility" aria-hidden="true"></span></button>');
 
         var button = download.previousElementSibling;
@@ -135,17 +171,33 @@
         button.addEventListener('click', function (event) {
             event.preventDefault();
             event.stopPropagation();
-            openPreview(subtitleId, row);
+            TS.previewResultRow(row, info.raw);
             return false;
         });
+    };
+
+    /// 预览按钮的 id 必须现读，不能用增强时抓到的 info.raw：
+    /// 用户点过「简」之后，行上的 data-subid 已经换成转简版，
+    /// 沿用旧值会预览到没转的那一份 —— 与用户「先转、再预览」的预期正好相反。
+    TS.previewResultRow = function (row, fallback) {
+        var download = row.querySelector('.btnDownload');
+        var raw = download ? download.getAttribute('data-subid') : null;
+        TS.openPreview(raw || fallback, row);
+
+        // 「我的字幕」那一行的紫色标签与「简」按钮由 clientScript.Rows.js 负责，
+        // 这里只处理搜索结果行。
+        if (TS.decorateResultRow) {
+            TS.decorateResultRow(row, info);
+        }
     }
 
-    function scan() {
+    /// 扫描搜索结果里的行（本插件生成的候选）。
+    TS.scanResults = function () {
         var rows = document.querySelectorAll('.subtitleResults [data-subid]');
         for (var i = 0; i < rows.length; i++) {
             enhance(rows[i]);
         }
-    }
+    };
 
     function scheduleScan() {
         if (scheduleScan.pending) {
@@ -155,11 +207,11 @@
         scheduleScan.pending = true;
         window.requestAnimationFrame(function () {
             scheduleScan.pending = false;
-            scan();
+            TS.scanAll();
         });
     }
 
-    function ensureStyle() {
+    TS.ensureStyle = function () {
         if (document.getElementById(STYLE_ID)) {
             return;
         }
@@ -191,18 +243,37 @@
             '.tsHintInput{width:100%;box-sizing:border-box;resize:vertical;min-height:2.6em;',
             'padding:.45em .6em;border-radius:.25em;border:1px solid rgba(255,255,255,.22);',
             'background:rgba(255,255,255,.06);color:inherit;font:inherit;}',
-            '.tsHintState{margin-top:.3rem;font-size:.8em;color:#9aa0a6;min-height:1.1em;}'
+            '.tsHintState{margin-top:.3rem;font-size:.8em;color:#9aa0a6;min-height:1.1em;}',
+            // 字形标签：复用 Jellyfin 原生的 pillow 排版，只换配色（紫色），
+            // 与原生「机器翻译 / AI 翻译」的蓝色一眼区分开。
+            '.subtitleFeaturePillow.tsScriptPillow{background:#7c4dff;color:#fff;border-color:#7c4dff;',
+            'margin-right:.45em;cursor:default;}',
+            // 「简」按钮用文字图标：material-icons 里没有对应汉字，
+            // 而用户明确要求图标内容就是「简」字。
+            '.tsGlyphIcon{font-family:inherit;font-size:.95rem;font-weight:600;line-height:1;}',
+            // 开启转简后给按钮上紫底：这是唯一能告诉用户「这一行下载时会转简」的信号，
+            // 只靠 title 提示在触屏上根本看不到。
+            '.tsGlyphButton.tsGlyphActive{background:#7c4dff;color:#fff;}',
+            '.tsGlyphButton.tsGlyphActive:hover{background:#8f66ff;}'
         ].join('');
         document.head.appendChild(style);
-    }
+    };
 
-    function formatBytes(bytes) {
+    TS.formatBytes = function (bytes) {
         if (!bytes) {
             return '0 B';
         }
 
         return bytes >= 1024 ? (bytes / 1024).toFixed(1) + ' KB' : bytes + ' B';
-    }
+    };
+
+    /// 当前详情页 / 播放页的条目 Id。
+    /// 地址形如 <c>#/details?id=&lt;guid&gt;</c>，播放页是 <c>#/video?id=&lt;guid&gt;</c>。
+    TS.currentItemId = function () {
+        var hash = window.location.hash || '';
+        var match = hash.match(/[?&]id=([0-9a-fA-F-]{32,36})/);
+        return match ? match[1] : null;
+    };
 
     function closePreview() {
         if (overlay && overlay.parentNode) {
@@ -219,10 +290,15 @@
         }
     }
 
-    function openPreview(subtitleId, row) {
-        ensureStyle();
+    /// 打开预览。
+    /// <param name="source">候选 id（`ts1-…`），或 `{ itemId, index }` 形式的本地字幕流。</param>
+    /// <param name="row">触发预览的行，用于「使用这份字幕」回点下载按钮。</param>
+    /// <param name="options">`{ showUse: false }` 用于「我的字幕」——那是本地已有文件，没有下载按钮。</param>
+    TS.openPreview = function (source, row, options) {
+        TS.ensureStyle();
         closePreview();
 
+        var opts = options || {};
         overlay = document.createElement('div');
         overlay.className = 'tsPreviewOverlay';
         overlay.innerHTML = [
@@ -234,7 +310,9 @@
             '    </div>',
             '    <div class="tsPreviewActions">',
             '      <button type="button" class="tsPreviewButton" data-act="wrap">自动换行</button>',
-            '      <button type="button" class="tsPreviewButton tsPreviewPrimary" data-act="use">使用这份字幕</button>',
+            opts.showUse === false
+                ? ''
+                : '      <button type="button" class="tsPreviewButton tsPreviewPrimary" data-act="use">使用这份字幕</button>',
             '      <button type="button" class="tsPreviewButton" data-act="close" title="关闭（Esc）">✕</button>',
             '    </div>',
             '  </div>',
@@ -272,9 +350,11 @@
             }
         });
 
-        var url = apiUrl('Text', { id: subtitleId });
+        var url = typeof source === 'string'
+            ? TS.apiUrl('Text', { id: source })
+            : TS.apiUrl('Stream', { itemId: source.itemId, index: source.index });
         var headers = {};
-        var token = accessToken();
+        var token = TS.accessToken();
         if (token) {
             headers.Authorization = 'MediaBrowser Token="' + token + '"';
         }
@@ -309,7 +389,7 @@
                     data.language,
                     data.cueCount + ' 条',
                     data.contentChars + ' 字',
-                    formatBytes(data.bytes),
+                    TS.formatBytes(data.bytes),
                     (data.extension || '').toUpperCase(),
                     data.encodingName
                 ].filter(Boolean).join(' · ');
@@ -319,138 +399,40 @@
                 title.textContent = '无法预览';
                 body.textContent = '读取字幕失败：' + (error && error.message ? error.message : error);
             });
-    }
+    };
 
-    // ---------------------------------------------------------------------
-    // 附加提示词：手动搜索对话框里的一行输入框
-    //
-    // 为什么不拦截「搜索」按钮：Jellyfin 各版本的按钮选择器一直在变，
-    // 拦截 + preventDefault + 重放 click 只要猜错一次，用户就点不动搜索。
-    // 改成「输入即保存」（debounce 500ms）：无论用户点哪个按钮、什么时候点，
-    // 服务器手上都已经有最新的提示词了，前端完全不介入搜索流程。
-    // ---------------------------------------------------------------------
+    /// 扫描全部三类行：搜索结果、我的字幕、附加提示词输入框。
+    TS.scanAll = function () {
+        TS.scanResults();
 
-    function currentItemId() {
-        // 详情页与播放页的地址形如 #/details?id=<guid>，播放页是 #/video?id=<guid>。
-        var hash = window.location.hash || '';
-        var match = hash.match(/[?&]id=([0-9a-fA-F-]{32,36})/);
-        return match ? match[1] : null;
-    }
-
-    function postHint(itemId, hint) {
-        var url = apiUrl('Hint', null);
-        if (!url) {
-            return Promise.reject(new Error('no api url'));
+        if (TS.scanExisting) {
+            TS.scanExisting();
         }
 
-        var token = accessToken();
-        var headers = { 'Content-Type': 'application/json' };
-        if (token) {
-            headers.Authorization = 'MediaBrowser Token="' + token + '"';
+        if (TS.ensureHintBox) {
+            TS.ensureHintBox();
         }
-
-        return fetch(url, {
-            method: 'POST',
-            credentials: 'same-origin',
-            headers: headers,
-            body: JSON.stringify({ itemId: itemId, hint: hint || '' })
-        }).then(function (response) {
-            if (!response.ok) {
-                throw new Error('HTTP ' + response.status);
-            }
-
-            return response.json().catch(function () {
-                return {};
-            });
-        });
-    }
-
-    function saveHintSoon(itemId, box) {
-        var textarea = box.querySelector('.tsHintInput');
-        var state = box.querySelector('.tsHintState');
-        if (!textarea || !state) {
-            return;
-        }
-
-        if (saveHintSoon.timer) {
-            window.clearTimeout(saveHintSoon.timer);
-        }
-
-        state.textContent = '正在保存…';
-        saveHintSoon.timer = window.setTimeout(function () {
-            postHint(itemId, textarea.value)
-                .then(function (data) {
-                    var length = data && typeof data.length === 'number' ? data.length : 0;
-                    state.textContent = length > 0
-                        ? '已应用（' + length + ' 字），只影响本次搜索'
-                        : '';
-                })
-                .catch(function () {
-                    // 降级：提示词没送到，搜索照常进行，只是按默认尺度评审。
-                    state.textContent = '提示词没有送到服务器，本次搜索按默认尺度评审';
-                });
-        }, 500);
-    }
-
-    function ensureHintBox() {
-        var dialog = document.querySelector('.subtitleEditorDialog');
-        if (!dialog || dialog.querySelector('.' + HINT_CLASS)) {
-            return;
-        }
-
-        var itemId = currentItemId();
-        if (!itemId) {
-            // 拿不到条目 Id，后端就没法把提示词和这次搜索对上。
-            // 宁可不显示输入框，也不要让用户填了却静默失效。
-            return;
-        }
-
-        ensureStyle();
-
-        var box = document.createElement('div');
-        box.className = HINT_CLASS;
-        box.innerHTML = [
-            '<div class="tsHintLabel">本次搜索的额外要求（可选，10 分钟内有效）</div>',
-            '<textarea class="tsHintInput" rows="2" maxlength="500" placeholder="例如：这是 1970 年代的黑帮片，用词粗粝一点，不要用网络语"></textarea>',
-            '<div class="tsHintState"></div>'
-        ].join('');
-
-        // 插在搜索结果上方；对话框还没渲染结果时退化为追加到末尾。
-        var results = dialog.querySelector('.subtitleResults');
-        if (results && results.parentNode) {
-            results.parentNode.insertBefore(box, results);
-        } else {
-            dialog.appendChild(box);
-        }
-
-        var textarea = box.querySelector('.tsHintInput');
-        if (textarea) {
-            textarea.addEventListener('input', function () {
-                saveHintSoon(itemId, box);
-            });
-        }
-    }
+    };
 
     function start() {
-        scan();
-        ensureHintBox();
+        TS.scanAll();
 
         var observer = new MutationObserver(scheduleScan);
         observer.observe(document.body, { childList: true, subtree: true });
 
-        // Belt and braces: re-scan once a second while a subtitle dialog is on screen, so a row
-        // that is re-rendered without a childList mutation still gets its button.
+        // 双保险：对话框在屏幕上时每秒重扫一次，
+        // 覆盖「行被重渲染但没有 childList 变动」这种情况。
         window.setInterval(function () {
-            if (document.querySelector('.subtitleEditorDialog')) {
-                scan();
-                ensureHintBox();
+            if (document.querySelector(".subtitleEditorDialog")) {
+                TS.scanAll();
             }
         }, 1000);
     }
 
-    if (document.readyState === 'loading') {
-        document.addEventListener('DOMContentLoaded', start);
+    if (document.readyState === "loading") {
+        document.addEventListener("DOMContentLoaded", start);
     } else {
         start();
     }
-})();
+}) (window.__ts = window.__ts || {});
+

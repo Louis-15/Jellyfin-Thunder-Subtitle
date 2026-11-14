@@ -242,13 +242,18 @@ public static partial class SubtitleRanker
     /// <param name="tierOverrideGap">
     /// 非中文影视的跨档择优分差；0 表示关闭。其他类型忽略此参数。
     /// </param>
+    /// <param name="autoConvertTraditional">
+    /// AV 与中文影视：繁体版高出简体版 <paramref name="tierOverrideGap"/> 分时，
+    /// 是否改用繁体并标记「写入时转简体」。
+    /// </param>
     /// <returns>The shortlist, best first; the input unchanged when a verdict is missing.</returns>
     public static IReadOnlyList<SubtitlePick> ApplyAiVerdicts(
         IReadOnlyList<SubtitlePick> shortlist,
         IReadOnlyDictionary<int, AiVerdict> verdicts,
         MediaKind kind,
         int simplifiedAcceptScore = 0,
-        int tierOverrideGap = 0)
+        int tierOverrideGap = 0,
+        bool autoConvertTraditional = false)
     {
         if (shortlist.Count == 0
             || verdicts.Count != shortlist.Count
@@ -274,6 +279,26 @@ public static partial class SubtitleRanker
         else if (kind == MediaKind.Foreign && tierOverrideGap > 0)
         {
             PromoteBetterLowerTier(scored, tiers, tierOverrideGap);
+        }
+
+        // 「自动繁转简」：AV 与中文影视默认简体优先，但如果繁体版分数明显更高，
+        // 说明那份译文确实做得好（台配台本、港版字幕这类），值得改用繁体，
+        // 写入时再转成简体 —— 用户看到的仍是简体，读到的却是更好的译本。
+        if (autoConvertTraditional
+            && kind != MediaKind.Foreign
+            && tierOverrideGap > 0
+            && PromoteBetterLowerTier(scored, tiers, tierOverrideGap))
+        {
+            foreach (var entry in scored)
+            {
+                if (!tiers[entry.Pick].Equals(0))
+                {
+                    continue;
+                }
+
+                // 标记「写入时转简体」：只标繁体/混用的那份，本来简体就不必再转。
+                entry.Pick.Simplify = ChineseScriptDetector.NeedsConversion(entry.Pick.Script);
+            }
         }
 
         return scored
@@ -346,7 +371,9 @@ public static partial class SubtitleRanker
     /// 只改这一份的档位，不整体提升低档位 —— 否则一份 81 分会把同档位 60 分的兄弟
     /// 一起带上来，反而挤掉本该优先的双语版本。
     /// </summary>
-    private static void PromoteBetterLowerTier(
+    /// <param name="gap">需要的分数差距。</param>
+    /// <returns>确实提升了一份候选时返回 true。</returns>
+    private static bool PromoteBetterLowerTier(
         IReadOnlyList<(SubtitlePick Pick, AiVerdict Verdict)> scored,
         Dictionary<SubtitlePick, int> tiers,
         int gap)
@@ -358,7 +385,7 @@ public static partial class SubtitleRanker
 
         if (preferred.Count == 0 || challengers.Count == 0)
         {
-            return;
+            return false;
         }
 
         var bestPreferred = preferred.Max(entry => entry.Verdict.Score);
@@ -366,10 +393,11 @@ public static partial class SubtitleRanker
 
         if (winner.Pick is null || winner.Verdict.Score - bestPreferred < gap)
         {
-            return;
+            return false;
         }
 
         tiers[winner.Pick] = best;
+        return true;
     }
 
     /// <summary>

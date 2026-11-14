@@ -71,7 +71,7 @@ public sealed partial class ThunderSubtitleProvider : ISubtitleProvider
             throw new InvalidOperationException($"{reason}，请稍后重新搜索。");
         }
 
-        if (!SubtitleId.TryDecode(id, out var uri, out var name, out var mediaPath) || uri is null)
+        if (!SubtitleId.TryDecode(id, out var uri, out var name, out var mediaPath, out var simplify) || uri is null)
         {
             throw new ArgumentException("无法识别的字幕标识。", nameof(id));
         }
@@ -88,6 +88,17 @@ public sealed partial class ThunderSubtitleProvider : ISubtitleProvider
         var extension = SubtitleText.DetectExtension(decoded.Text, Path.GetExtension(name))
                         ?? throw new InvalidOperationException("下载到的内容不是受支持的字幕格式。");
 
+        var text = decoded.Text;
+        if (simplify)
+        {
+            // 用户点了「简」：把繁体（或简繁混用）转成简体再写盘。
+            // 这里不判断「有没有繁体」——用户既然点了，就按他的意思统一成简体，
+            // 哪怕已经是简体，转换也是幂等的。
+            var before = ChineseScriptDetector.Detect(SubtitleContent.StripMarkup(text));
+            text = SimplifiedConverter.ToSimplified(text);
+            _log.Info($"手动下载：{name} 按用户要求转简体（原字形 {ChineseScriptDetector.DisplayName(before)}）。");
+        }
+
         _log.Info($"手动下载：{name}（{decoded.EncodingName} → utf-8）。");
 
         RemoveOldSubtitles(mediaPath);
@@ -99,7 +110,7 @@ public sealed partial class ThunderSubtitleProvider : ISubtitleProvider
             IsForced = false,
             IsHearingImpaired = false,
             Stream = new MemoryStream(
-                new UTF8Encoding(false).GetBytes(SubtitleText.Normalize(decoded.Text) + "\n"),
+                new UTF8Encoding(false).GetBytes(SubtitleText.Normalize(text) + "\n"),
                 writable: false)
         };
     }
@@ -212,16 +223,93 @@ public static class SubtitleId
     /// </summary>
     internal const string NoticeMarker = "nt1-";
 
+    /// <summary>
+    /// 是不是「下载后转简体」的前缀。
+    /// </summary>
+    /// <remarks>
+    /// 判第三位，而不是比对某个固定字符串。字形有三种（<c>s</c> 简体 / <c>t</c> 繁体 /
+    /// <c>m</c> 混用），转简标志与字形无关，三种都要认。
+    ///
+    /// 早先这里是一个 <c>const string SimplifyMarker = "ts2-"</c> 加 <c>StartsWith</c>，
+    /// 只有简体那一支能命中 —— 而现实里需要转简的恰恰全是 <c>tt2-</c> 和 <c>tm2-</c>，
+    /// 于是「点了简、下载出来还是繁体」。
+    /// </remarks>
+    /// <param name="id">已规范化的 id（可能还带 md5 前缀）。</param>
+    /// <returns><c>true</c> 表示用户要求转简。</returns>
+    private static bool IsSimplifyMarker(string id)
+    {
+        return id.Length >= 4
+            && id[0] == 't'
+            && id[2] == '2'
+            && id[3] == '-'
+            && (id[1] == 's' || id[1] == 't' || id[1] == 'm');
+    }
+
+    /// <summary>
+    /// 全部字形前缀。格式固定四个字符：<c>t</c> + 字形 + <c>1/2</c> + <c>-</c>。
+    ///
+    /// 字形：<c>s</c> 简体 / <c>t</c> 繁体 / <c>m</c> 简繁混用。
+    /// 第三位：<c>1</c> 原样下载 / <c>2</c> 下载后转简体。
+    ///
+    /// 为什么编码进前缀而不是新开一个查询接口：前端每画一个紫色标签就要问一次服务端，
+    /// 而 scan 是跟着 DOM 变动跑的，一次搜索会有几十次调用。前缀里本来就有的信息，
+    /// 没有理由让前端再问一遍。旧版本生成的 <c>ts1-</c> 后缀含义不变，因此向后兼容。
+    /// </summary>
+    internal static readonly string[] ScriptMarkers =
+    [
+        "ts1-", "ts2-",
+        "tt1-", "tt2-",
+        "tm1-", "tm2-"
+    ];
+
     /// <summary>Builds the id for a candidate.</summary>
     /// <param name="uri">Download URI.</param>
     /// <param name="extension">Content extension, with or without the dot.</param>
     /// <param name="name">Candidate name, used to re-detect the format.</param>
     /// <param name="mediaPath">Path of the video, so the download can replace the old files.</param>
+    /// <param name="script">
+    /// 字形。前缀里带上它，前端才能在不问服务端的情况下画出「繁体 / 简繁混用」紫色标签。
+    /// </param>
     /// <returns>A URL-safe id.</returns>
-    public static string Encode(Uri uri, string extension, string name, string? mediaPath)
+    public static string Encode(
+        Uri uri,
+        string extension,
+        string name,
+        string? mediaPath,
+        ChineseScript script = ChineseScript.Simplified)
     {
         var payload = string.Join('|', uri.AbsoluteUri, SubtitleText.NormalizeExtension(extension), name, mediaPath ?? string.Empty);
-        return CandidateMarker + ToBase64Url(payload);
+        return MarkerFor(script, simplify: false) + ToBase64Url(payload);
+    }
+
+    /// <summary>
+    /// 取一组 id 前缀，把「原样下载」换成「下载后转简体」。
+    /// 前端点「简」按钮时用它改 id，服务端不需要知道是哪种字形 —— 转换本身是幂等的。
+    /// </summary>
+    /// <param name="marker">原来的前缀。</param>
+    /// <returns>对应的转简前缀；不是候选前缀时返回 <c>null</c>。</returns>
+    internal static string? ToSimplifyMarker(string marker) => marker switch
+    {
+        "ts1-" => "ts2-",
+        "tt1-" => "tt2-",
+        "tm1-" => "tm2-",
+        "ts2-" => "ts2-",
+        "tt2-" => "tt2-",
+        "tm2-" => "tm2-",
+        _ => null
+    };
+
+    /// <summary>按字形与是否转简拼出前缀。</summary>
+    private static string MarkerFor(ChineseScript script, bool simplify)
+    {
+        var letter = script switch
+        {
+            ChineseScript.Traditional => 't',
+            ChineseScript.Mixed => 'm',
+            _ => 's'
+        };
+
+        return $"t{letter}{(simplify ? '2' : '1')}-";
     }
 
     /// <summary>
@@ -275,8 +363,21 @@ public static class SubtitleId
 
     private static bool HasMarker(string id)
     {
-        return id.StartsWith(CandidateMarker, StringComparison.Ordinal)
-               || id.StartsWith(NoticeMarker, StringComparison.Ordinal);
+        return FindMarker(id) is not null;
+    }
+
+    /// <summary>取 id 开头的字形前缀，没有时返回 <c>null</c>。</summary>
+    private static string? FindMarker(string id)
+    {
+        foreach (var marker in ScriptMarkers)
+        {
+            if (id.StartsWith(marker, StringComparison.Ordinal))
+            {
+                return marker;
+            }
+        }
+
+        return id.StartsWith(NoticeMarker, StringComparison.Ordinal) ? NoticeMarker : null;
     }
 
     /// <summary>Reads the reason out of a notice id.</summary>
@@ -307,9 +408,32 @@ public static class SubtitleId
     /// <returns><c>true</c> when the id is well formed.</returns>
     public static bool TryDecode(string id, out Uri? uri, out string name, out string mediaPath)
     {
+        return TryDecode(id, out uri, out name, out mediaPath, out _);
+    }
+
+    /// <summary>Decodes an id, also reporting whether the content must be converted to Simplified.</summary>
+    /// <param name="id">The id.</param>
+    /// <param name="uri">The download URI.</param>
+    /// <param name="name">The candidate name, or an empty string.</param>
+    /// <param name="mediaPath">The video path, or an empty string.</param>
+    /// <param name="simplify">
+    /// <c>true</c> when the user asked for「繁转简」: the download is written in Simplified Chinese.
+    /// </param>
+    /// <returns><c>true</c> when the id is well formed.</returns>
+    public static bool TryDecode(
+        string id,
+        out Uri? uri,
+        out string name,
+        out string mediaPath,
+        out bool simplify)
+    {
         uri = null;
         name = string.Empty;
         mediaPath = string.Empty;
+        simplify = false;
+
+        var normalized = NormalizeIncoming(id);
+        simplify = IsSimplifyMarker(normalized);
 
         if (!TryDecodeText(id, out var payload))
         {
@@ -366,13 +490,6 @@ public static class SubtitleId
 
     private static string StripMarker(string id)
     {
-        if (id.StartsWith(CandidateMarker, StringComparison.Ordinal))
-        {
-            return id[CandidateMarker.Length..];
-        }
-
-        return id.StartsWith(NoticeMarker, StringComparison.Ordinal)
-            ? id[NoticeMarker.Length..]
-            : id;
+        return FindMarker(id) is { } marker ? id[marker.Length..] : id;
     }
 }

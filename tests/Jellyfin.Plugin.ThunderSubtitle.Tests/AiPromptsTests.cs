@@ -22,6 +22,59 @@ public class AiPromptsTests
     }
 
     [Fact]
+    public void OpeningPlaceholderIsAlwaysReplaced()
+    {
+        // 占位符漏替换意味着模型会看到「{OPENING}」这种莫名其妙的字面量。
+        foreach (var kind in new[] { MediaKind.Foreign, MediaKind.Chinese, MediaKind.JapaneseAv })
+        {
+            Assert.DoesNotContain("{OPENING}", AiPrompts.System(kind), System.StringComparison.Ordinal);
+            Assert.DoesNotContain("{OPENING}", AiPrompts.System(kind, singleCandidate: true), System.StringComparison.Ordinal);
+        }
+    }
+
+    [Fact]
+    public void MultiCandidatePromptKeepsTheComparisonWording()
+    {
+        var prompt = AiPrompts.System(MediaKind.Foreign);
+
+        Assert.Contains("若干份", prompt);
+        Assert.Contains("请横向对比", prompt);
+    }
+
+    [Fact]
+    public void SingleCandidatePromptAsksForAnAbsoluteScore()
+    {
+        // 只有一份候选时还叫模型「横向对比，判断哪一份更好」，它会不知所措。
+        // 换成「直接评估这一份」之后，评分锚点（90-100 像原创 / 0-39 机翻严重）仍然适用。
+        var prompt = AiPrompts.System(MediaKind.Foreign, singleCandidate: true);
+
+        Assert.DoesNotContain("请横向对比", prompt);
+        Assert.Contains("只有这一份，不需要比较", prompt);
+        Assert.Contains("请直接评估它的翻译质量", prompt);
+
+        // 评分锚点必须原样保留 —— 单份能评出有意义的分数，全靠这几档绝对标准。
+        Assert.Contains("90-100", prompt);
+        Assert.Contains("0-39", prompt);
+    }
+
+    [Fact]
+    public void SingleCandidateChinesePromptDoesNotSaySeveralCopies()
+    {
+        var prompt = AiPrompts.System(MediaKind.Chinese, singleCandidate: true);
+
+        Assert.DoesNotContain("若干份", prompt);
+        Assert.Contains("一份字幕", prompt);
+        Assert.Contains("错别字", prompt);
+    }
+
+    [Fact]
+    public void AvPromptNeedsNoSingleCandidateVariant()
+    {
+        // AV 的提示词本来就没提「几份」，单份与多份共用同一段文本。
+        Assert.Equal(AiPrompts.System(MediaKind.JapaneseAv), AiPrompts.System(MediaKind.JapaneseAv, singleCandidate: true));
+    }
+
+    [Fact]
     public void ForeignPromptJudgesHowChineseItReads()
     {
         var prompt = AiPrompts.System(MediaKind.Foreign);

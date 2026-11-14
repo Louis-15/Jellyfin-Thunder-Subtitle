@@ -19,18 +19,51 @@ internal static class AiPrompts
     /// <summary>
     /// 提示词版本号。改动任何一段 system prompt 时递增，
     /// 让 <c>AiScoreCache</c> 里的旧分数自动失效。
+    ///
+    /// 2：新增单份候选（绝对评分）的措辞分支。
     /// </summary>
-    internal const int Version = 1;
+    internal const int Version = 2;
 
-    /// <summary>按影片类型取 system prompt。</summary>
+    /// <summary>
+    /// 开场白的占位符。<see cref="System"/> 按「几份候选」替换成 <c>MultiOpening</c> 或
+    /// <c>SingleOpening</c> —— 三套提示词的主体只写一遍，差异集中在开头三句话。
+    /// 占位符绝不能被漏替换：<see cref="AiPromptsTests"/> 有断言守着。
+    /// </summary>
+    private const string OpeningSlot = "{OPENING}";
+
+    /// <summary>
+    /// 按影片类型取 system prompt。
+    /// </summary>
     /// <param name="kind">The media kind.</param>
+    /// <param name="singleCandidate">
+    /// 只有一份候选时为 true：把「若干份 / 横向对比 / 哪一份更好」换成「这一份好不好」。
+    ///
+    /// 为什么要分两套措辞：只有一份的时候还叫模型「横向对比，判断哪一份质量更高」，
+    /// 它会不知所措，给分也不稳定；而 prompt 里的评分锚点本来就是绝对标准
+    /// （90-100 像中文原创剧本 / 0-39 机翻痕迹严重），单份照样能评出有意义的质量分。
+    /// 日本AV 的提示词本来就没提「几份」，不需要分支。
+    /// </param>
     /// <returns>The system prompt.</returns>
-    internal static string System(MediaKind kind) => kind switch
+    internal static string System(MediaKind kind, bool singleCandidate = false)
     {
-        MediaKind.Chinese => ChineseSystem,
-        MediaKind.JapaneseAv => AvSystem,
-        _ => ForeignSystem
-    };
+        var prompt = kind switch
+        {
+            MediaKind.Chinese => ChineseSystem,
+            MediaKind.JapaneseAv => AvSystem,
+            _ => ForeignSystem
+        };
+
+        if (!prompt.Contains(OpeningSlot, StringComparison.Ordinal))
+        {
+            return prompt;
+        }
+
+        var opening = singleCandidate
+            ? kind == MediaKind.Chinese ? ChineseSingleOpening : ForeignSingleOpening
+            : kind == MediaKind.Chinese ? ChineseMultiOpening : ForeignMultiOpening;
+
+        return prompt.Replace(OpeningSlot, opening, StringComparison.Ordinal);
+    }
 
     /// <summary>
     /// 组装 user prompt：影片卡 + 对齐片段 + 可选的用户额外要求。
@@ -118,13 +151,21 @@ internal static class AiPrompts
         return value.ToString(@"hh\:mm\:ss", CultureInfo.InvariantCulture);
     }
 
+    private const string ForeignMultiOpening =
+        "下面同一部影片的若干份中文字幕候选，来自英文字幕的翻译（部分可能是机器翻译）。\n"
+        + "每份只抽取了几段连续台词，按片段分组：同一片段列出了所有候选对同一段剧情的译法。\n"
+        + "请横向对比，判断哪一份的翻译质量更高。\n";
+
+    private const string ForeignSingleOpening =
+        "下面这部影片的一份中文字幕，来自英文字幕的翻译（可能是机器翻译）。\n"
+        + "只抽取了几段连续台词作为样本，按片段分组。\n"
+        + "只有这一份，不需要比较；请直接评估它的翻译质量。\n";
+
     private const string ForeignSystem =
         "你是资深的影视字幕译者与审校，母语中文，长期为流媒体平台做英文字幕的中文精翻。\n"
         + "\n"
         + "# 任务\n"
-        + "下面同一部影片的若干份中文字幕候选，来自英文字幕的翻译（部分可能是机器翻译）。\n"
-        + "每份只抽取了几段连续台词，按片段分组：同一片段列出了所有候选对同一段剧情的译法。\n"
-        + "请横向对比，判断哪一份的翻译质量更高。\n"
+        + OpeningSlot
         + "\n"
         + "# 你看不到什么\n"
         + "你看不到英文字幕原文，因此不要评价「翻译是否准确」。\n"
@@ -178,8 +219,15 @@ internal static class AiPrompts
         + "{\"candidates\":[{\"id\":1,\"score\":88,\"machine\":false,\"source\":\"human\","
         + "\"evidence\":\"「我从来没像现在这样害怕过」\",\"reason\":\"口语自然，称呼前后一致\"}]}";
 
+    private const string ChineseMultiOpening =
+        "下面同一部中文影视的若干份字幕候选，每份抽取了几段连续台词。";
+
+    private const string ChineseSingleOpening =
+        "下面同一部中文影视的一份字幕，抽取了几段连续台词。";
+
     private const string ChineseSystem =
-        "你是中文影视字幕的校对编辑。下面同一部中文影视的若干份字幕候选，每份抽取了几段连续台词。\n"
+        "你是中文影视字幕的校对编辑。"
+        + OpeningSlot + "\n"
         + "\n"
         + "# 任务\n"
         + "逐份检查错别字与用字错误，统计问题条数，并给出可用性评分。\n"

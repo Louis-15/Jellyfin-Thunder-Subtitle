@@ -44,18 +44,23 @@ public class ThunderSubtitleProviderTests
 
         public string? LastExtraInstruction { get; private set; }
 
+        /// <summary>Gets a value indicating whether the caller allowed judging a single candidate.</summary>
+        public bool LastJudgeSingleCandidate { get; private set; }
+
         public Task<FindOutcome> FindAsync(
             SearchTarget target,
             MediaKind kind,
             MediaBrief? brief,
             string? extraInstruction,
-            CancellationToken cancellationToken)
+            CancellationToken cancellationToken,
+            bool judgeSingleCandidate = false)
         {
             Calls++;
             LastTarget = target;
             LastKind = kind;
             LastBrief = brief;
             LastExtraInstruction = extraInstruction;
+            LastJudgeSingleCandidate = judgeSingleCandidate;
             var ranked = Picks.ToArray();
             var candidates = ranked.Length > 0
                 ? ranked.Select(p => new ThunderCandidate(p.Uri!, p.CandidateName, "srt")).ToArray()
@@ -359,5 +364,18 @@ public class ThunderSubtitleProviderTests
         await provider.Search(Request("chi"), CancellationToken.None);
 
         Assert.Null(finder.LastExtraInstruction);
+    }
+
+    [Fact]
+    public async Task ManualSearchAllowsJudgingASingleCandidate()
+    {
+        // 手动搜索的诉求是「这唯一一份到底好不好」，不是「哪一份更好」。
+        // 自动补全不传这个开关：那里一份的排序就是答案，多调一次只会拖慢批量任务。
+        var finder = new FakeFinder { RawCandidates = 1 };
+        var provider = Create(finder, itemId: Guid.NewGuid());
+
+        await provider.Search(Request("chi"), CancellationToken.None);
+
+        Assert.True(finder.LastJudgeSingleCandidate, "手动搜索应当允许单份送审");
     }
 }

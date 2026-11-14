@@ -64,7 +64,16 @@ public sealed partial class ThunderSubtitleProvider
             }
 
             outcome = await _finder
-                .FindAsync(target, kind, _libraryContext.BriefForPath(request.MediaPath), hint, cancellationToken)
+                .FindAsync(
+                    target,
+                    kind,
+                    _libraryContext.BriefForPath(request.MediaPath),
+                    hint,
+                    cancellationToken,
+                    // 手动搜索允许「只有一份也送审」：用户点搜索想知道的是
+                    // 「这唯一一份到底好不好」，而不是「哪一份更好」（只有一份没得选）。
+                    // 自动补全不传这个开关 —— 那里一份的排序就是答案，多调一次只会拖慢批量任务。
+                    judgeSingleCandidate: true)
                 .ConfigureAwait(false);
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
@@ -78,6 +87,25 @@ public sealed partial class ThunderSubtitleProvider
         }
 
         _log.Info($"手动搜索 [{target.Label}]：候选 {outcome.Candidates.Count} 条，中文 {outcome.Ranked.Count} 条。");
+
+        // 手动搜索的评分结果以前只显示在字幕列表里，日志里查不到，
+        // 核对「为什么这份分低」时只能靠猜。这里补一行，格式与自动任务保持一致。
+        if (outcome.Verdicts is not null)
+        {
+            foreach (var pick in outcome.Shortlist)
+            {
+                var verdict = outcome.VerdictOf(pick);
+                if (verdict is null)
+                {
+                    continue;
+                }
+
+                var flag = verdict.EvidenceVerified ? "✓" : (verdict.Evidence.Length > 0 ? "✗" : "·");
+                var evidence = verdict.Evidence.Length > 0 ? $"「{verdict.Evidence}」" : string.Empty;
+                _log.Info($"手动搜索 [{target.Label}]：AI「{pick.CandidateName}」{verdict.Score:F0} 分"
+                          + $"（{verdict.EffectiveSource}）{flag}{evidence} {verdict.Reason}");
+            }
+        }
 
         if (outcome.Ranked.Count == 0)
         {
@@ -142,7 +170,10 @@ public sealed partial class ThunderSubtitleProvider
         {
             // On its own line: Jellyfin renders the comment with white-space: pre-line, and mixing
             // a long reason into the measurements made the row unreadable.
-            comment += "\n" + string.Create(CultureInfo.InvariantCulture, $"AI {verdict.Score:F0} 分");
+            // 只有一份候选时注明「绝对评分」：这个分数不是跟别人比出来的，
+            // 不加说明的话，用户会以为它和 8 份横向比较打出来的分是一回事。
+            var scale = outcome.Shortlist.Count == 1 ? "（仅此一份，绝对评分）" : string.Empty;
+            comment += "\n" + string.Create(CultureInfo.InvariantCulture, $"AI {verdict.Score:F0} 分{scale}");
             if (!string.IsNullOrWhiteSpace(verdict.Reason))
             {
                 comment += $"（{verdict.Reason}）";
@@ -154,7 +185,7 @@ public sealed partial class ThunderSubtitleProvider
 
         return new RemoteSubtitleInfo
         {
-            Id = SubtitleId.Encode(pick.Uri!, pick.Extension, pick.CandidateName, mediaPath),
+            Id = SubtitleId.Encode(pick.Uri!, pick.Extension, pick.CandidateName, mediaPath, pick.Script),
             ProviderName = DisplayName,
             Name = $"{rank}. {pick.CandidateName}",
             Format = pick.Extension.TrimStart('.'),

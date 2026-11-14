@@ -55,8 +55,9 @@ public sealed class AiSubtitleJudge
         string? extraInstruction,
         CancellationToken cancellationToken)
     {
-        // 只有一份候选时排序本身就是答案，白花一次请求。
-        if (shortlist.Count < 2)
+        // 一份都没有时无从评起。只有一份时仍然可以评 —— 见 JudgeSingleCandidate 的说明：
+        // 手动搜索想知道的是「这一份好不好」，而不是「哪一份更好」。
+        if (shortlist.Count == 0)
         {
             return null;
         }
@@ -80,7 +81,7 @@ public sealed class AiSubtitleJudge
             return null;
         }
 
-        var request = ToRequest(kind, composed, settings);
+        var request = ToRequest(kind, composed, settings, shortlist.Count);
         var body = JsonSerializer.Serialize(request, AiChat.Json);
         _log.Debug($"[AI] 影片类型 {MediaKindResolver.DisplayName(kind)}，送审 {shortlist.Count} 份，"
                    + $"prompt {composed.UserPrompt.Length} 字符 / {composed.Segments.Count} 段。");
@@ -187,10 +188,14 @@ public sealed class AiSubtitleJudge
         string? extraInstruction)
     {
         var composed = AiPromptBuilder.Compose(kind, brief, shortlist, settings, extraInstruction, SegmentTolerance);
-        return composed is null ? null : ToRequest(kind, composed, settings);
+        return composed is null ? null : ToRequest(kind, composed, settings, shortlist.Count);
     }
 
-    private static ChatRequest ToRequest(MediaKind kind, JudgedPrompt composed, AiSettings settings)
+    private static ChatRequest ToRequest(
+        MediaKind kind,
+        JudgedPrompt composed,
+        AiSettings settings,
+        int candidateCount)
     {
         return new ChatRequest
         {
@@ -198,7 +203,8 @@ public sealed class AiSubtitleJudge
             Temperature = 0,
             Messages =
             [
-                new ChatMessage { Role = "system", Content = AiPrompts.System(kind) },
+                // 只有一份候选时换成绝对评分的措辞：还叫模型「横向对比」它会不知所措。
+                new ChatMessage { Role = "system", Content = AiPrompts.System(kind, candidateCount == 1) },
                 new ChatMessage { Role = "user", Content = composed.UserPrompt }
             ]
         };

@@ -67,13 +67,22 @@ public interface ISubtitleFinder
     /// <param name="brief">影片元数据卡，拼进 AI 提示词；可为空。</param>
     /// <param name="extraInstruction">手动搜索时用户输入的额外要求；定时任务传空。</param>
     /// <param name="cancellationToken">Cancellation token.</param>
+    /// <param name="judgeSingleCandidate">
+    /// 只剩一份候选时是否仍然送审。
+    ///
+    /// 默认 false：AI 的定位是「横向比较排序」，只有一份时排序本身就是答案，白花一次请求。
+    /// 手动搜索传 true —— 用户点搜索想知道的是「这唯一一份到底好不好」，
+    /// 而不是「哪一份更好」（只有一份，没得选）。prompt 的评分锚点是绝对标准
+    /// （90-100 像原创 / 0-39 机翻严重），单份照样能评出一个有意义的质量分。
+    /// </param>
     /// <returns>The outcome, even when nothing usable was found.</returns>
     Task<FindOutcome> FindAsync(
         SearchTarget target,
         MediaKind kind,
         MediaBrief? brief,
         string? extraInstruction,
-        CancellationToken cancellationToken);
+        CancellationToken cancellationToken,
+        bool judgeSingleCandidate = false);
 }
 
 /// <summary>
@@ -112,7 +121,8 @@ public sealed partial class SubtitleFinder : ISubtitleFinder
         MediaKind kind,
         MediaBrief? brief,
         string? extraInstruction,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        bool judgeSingleCandidate = false)
     {
         var config = Plugin.Current;
         config.Normalize();
@@ -213,26 +223,35 @@ public sealed partial class SubtitleFinder : ISubtitleFinder
 
         var outcome = new FindOutcome(candidates, healthy.Kept.Count, ranked, null, acceptable.Dropped, skipped, started.Elapsed.TotalSeconds);
 
-        if (ranked.Count == 0 || !config.IsAiUsable || ranked.Count < 2)
+        if (ranked.Count == 0 || !config.IsAiUsable || (ranked.Count < 2 && !judgeSingleCandidate))
         {
             if (ranked.Count >= 2 && config.AiEnabled && !config.IsAiUsable)
             {
-                _log.Warn($"[{label}] AI 评审已开启但缺少 API Key 或模型名，按字符数排序。");
+                _log.Warn($"[{label}] AI 评审已开启但缺少 API Key 或模型名，按本地规则排序。");
             }
 
             return outcome with { Shortlist = ranked.Take(1).ToArray() };
         }
 
         var shortlist = ShortlistSelector.Select(ranked, kind, config.AiPerTier);
-        if (shortlist.Count > 1)
+        if (shortlist.Count > 0)
         {
-            var detail = string.Join(
-                " / ",
-                shortlist
-                    .GroupBy(pick => LanguagePolicy.TierOf(kind, pick.Language))
-                    .OrderBy(group => group.Key)
-                    .Select(group => $"Tier{group.Key} {LanguagePolicy.TierName(kind, group.Key)} {group.Count()} 份"));
-            _log.Info($"[{label}] AI 评审：候选 {ranked.Count} 份，选出 {shortlist.Count} 份送审（{detail}）。");
+            // 单份也要记一行：手动搜索允许「只有一份也送审」，
+            // 排查时得能看出这次到底走没走 AI、走的是哪种评分尺度。
+            if (shortlist.Count == 1)
+            {
+                _log.Info($"[{label}] AI 评审：候选 {ranked.Count} 份，只有 1 份可送审，按绝对质量评分（非横向比较）。");
+            }
+            else
+            {
+                var detail = string.Join(
+                    " / ",
+                    shortlist
+                        .GroupBy(pick => LanguagePolicy.TierOf(kind, pick.Language))
+                        .OrderBy(group => group.Key)
+                        .Select(group => $"Tier{group.Key} {LanguagePolicy.TierName(kind, group.Key)} {group.Count()} 份"));
+                _log.Info($"[{label}] AI 评审：候选 {ranked.Count} 份，选出 {shortlist.Count} 份送审（{detail}）。");
+            }
         }
 
         var keys = shortlist
@@ -295,7 +314,8 @@ public sealed partial class SubtitleFinder : ISubtitleFinder
                     verdicts,
                     kind,
                     config.AiSimplifiedAcceptScore,
-                    config.AiTierOverrideGap)
+                    config.AiTierOverrideGap,
+                    config.AutoConvertTraditional)
                 .Concat(ranked.Where(pick => !judged.Contains(pick)))
                 .ToArray(),
             Verdicts = verdicts,

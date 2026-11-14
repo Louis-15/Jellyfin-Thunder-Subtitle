@@ -124,6 +124,20 @@ public partial class PluginConfiguration
     public int AiSimplifiedAcceptScore { get; set; } = 60;
 
     /// <summary>
+    /// 自动补全时自动繁转简。默认关闭。
+    ///
+    /// 打开后：AV 与中文影视若繁体版的 AI 分数高出简体版
+    /// <see cref="AiTierOverrideGap"/> 分以上，就选繁体那份，写入时自动转成简体。
+    ///
+    /// 为什么需要它：AV 和中文影视的策略都是「简体优先」，但有些片子只有繁体版
+    /// 做得认真（台配台本、港版字幕），简体版反而是机翻。用户的原话是
+    /// 「在繁体评分更优的情况下，可以选择繁体，但将其转为简体」。
+    ///
+    /// 关闭时保持原行为：简体档有就用简体档，繁体只在简体缺位或质量降级时上场。
+    /// </summary>
+    public bool AutoConvertTraditional { get; set; }
+
+    /// <summary>
     /// 非中文影视的跨档择优分差。默认 8，0 表示关闭。
     ///
     /// 非中文影视的语言策略是「有简英双语就用双语」，但双语版有时是照英文词序硬翻的，

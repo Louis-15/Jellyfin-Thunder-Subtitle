@@ -31,6 +31,10 @@ public sealed record SubtitlePick
         // 健康度必须在构造时算完：排序和短名单筛选都要用，而它们会对同一份候选
         // 反复比较。一次遍历 1600 条约 0.2 ms，比在比较器里反复扫描便宜得多。
         Health = SubtitleHealth.Scan(_cues);
+
+        // 字形（简 / 繁 / 混用）单独一维：它不影响语言档位，只决定要不要给用户
+        // 显示紫色标签、要不要提供「繁转简」。一次遍历约 0.3 ms。
+        Script = ChineseScriptDetector.Detect(SubtitleContent.StripMarkup(text));
     }
 
     /// <summary>Gets the source URI, when the pick came from the API.</summary>
@@ -74,6 +78,24 @@ public sealed record SubtitlePick
     /// 只用来淘汰明显有毛病的候选，不用来排名 —— 具体原因见 <see cref="SubtitleHealth"/>。
     /// </summary>
     public SubtitleHealth Health { get; }
+
+    /// <summary>
+    /// Gets or sets the Chinese orthography of this candidate: 简体 / 繁体 / 繁简混用。
+    ///
+    /// 与 <see cref="Language"/> 是两个维度：那个决定语言档位（排序用），
+    /// 这个决定「要不要显示紫色标签、要不要提供繁转简」（界面用）。
+    /// </summary>
+    public ChineseScript Script { get; }
+
+    /// <summary>
+    /// Gets or sets a value indicating whether this candidate is written in Simplified Chinese.
+    ///
+    /// 故意做成可写：它由排序阶段决定（繁体版分数明显更高时会标记转换），
+    /// 而 <see cref="FindOutcome.VerdictOf"/> 靠引用相等把分数对回候选上，
+    /// 换成 <c>with</c> 表达式会产生新实例，分数就再也对不上了。
+    /// 只有这一个字段这样处理，其余全部只读。
+    /// </summary>
+    public bool Simplify { get; set; }
 
     /// <summary>Gets every cue of the subtitle, parsed once at construction.</summary>
     /// <returns>The cues.</returns>

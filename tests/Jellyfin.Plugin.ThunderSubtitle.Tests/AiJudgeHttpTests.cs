@@ -115,7 +115,32 @@ public class AiJudgeHttpTests
     }
 
     [Fact]
-    public async Task SkipsWithoutCallingTheApiWhenOnlyOneCandidate()
+    public async Task JudgesASingleCandidateWhenItIsAllThereIs()
+    {
+        // 只有一份候选时仍然评：手动搜索想知道的是「这一份好不好」，
+        // 而不是「哪一份更好」（只有一份，没得选）。
+        // prompt 里的评分锚点是绝对标准，单份照样能评出有意义的质量分。
+        var reply = """
+            {"choices":[{"message":{"content":"{\"candidates\":[{\"id\":1,\"score\":41,\"machine\":true,\"source\":\"ai\",\"reason\":\"语序是日语直译\"}]}"}}]}
+            """;
+        await using var stub = new StubServer(HttpStatusCode.OK, reply);
+        var judge = new AiSubtitleJudge(NullLogger<AiSubtitleJudge>.Instance);
+
+        var verdicts = await judge.JudgeAsync(
+            MediaKind.JapaneseAv,
+            null,
+            [Pick("a.srt", SrtA)],
+            new AiSettings(stub.BaseUrl + "/v1", "k", "m", 8, 8, 3000, 10),
+            null,
+            CancellationToken.None);
+
+        Assert.NotNull(verdicts);
+        Assert.Equal(41, verdicts![1].Score);
+        Assert.Equal(1, stub.RequestCount);
+    }
+
+    [Fact]
+    public async Task SkipsWhenThereAreNoCandidatesAtAll()
     {
         await using var stub = new StubServer(HttpStatusCode.OK, "{}");
         var judge = new AiSubtitleJudge(NullLogger<AiSubtitleJudge>.Instance);
@@ -123,7 +148,7 @@ public class AiJudgeHttpTests
         var verdicts = await judge.JudgeAsync(
             MediaKind.Foreign,
             null,
-            [Pick("a.srt", SrtA)],
+            [],
             new AiSettings(stub.BaseUrl + "/v1", "k", "m", 8, 8, 3000, 10),
             null,
             CancellationToken.None);
