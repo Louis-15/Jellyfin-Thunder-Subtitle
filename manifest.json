@@ -9,6 +9,14 @@
     "imageUrl": "https://raw.githubusercontent.com/Louis-15/Jellyfin-Thunder-Subtitle/main/logo.png",
     "versions": [
       {
+        "version": "1.11.0.2",
+        "changelog": "Release 1.11.0.2\n\nRelease 1.11.0.2\n\n文档更新：新增「一次评审要花多少钱」一节，给出一次 AI 评审的 token 规模与费用区间。\n- DeepSeek 官方 API：一次约人民币 0.8 分到 3 分多，高峰时段翻倍\n- OpenCode Go 等套餐：按官方标价计费、额度约为订阅价的 10 倍，花费约为官方的 1/10",
+        "targetAbi": "12.2.0.0",
+        "sourceUrl": "https://github.com/Louis-15/Jellyfin-Thunder-Subtitle/releases/download/v1.11.0.2/thunder-subtitle_1.11.0.2.zip",
+        "checksum": "2bb5a09d88fbefeb54c3bd4ee0107284",
+        "timestamp": "2026-11-17T15:11:11Z"
+      },
+      {
         "version": "1.11.0.1",
         "changelog": "Release 1.11.0.1\n\nRelease 1.11.0.1\n\n修复插件详情页简介仍显示旧文案：Jellyfin 插件详情页读取的是 dll 内的 Plugin.Description，\nmeta.json 的 description 只用于插件目录（未安装时）展示。1.11.0.0 漏改了前者，本次两处同步。",
         "targetAbi": "12.2.0.0",
