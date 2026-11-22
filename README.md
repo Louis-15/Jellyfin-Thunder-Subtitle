@@ -488,8 +488,9 @@ docker logs --tail 200 jellyfin 2>&1 | grep -i "Thunder Subtitle"
 | API Key | 以 `Authorization: Bearer` 发送，不写入日志；**每个供应商单独保存** |
 | 模型 | Open Code：`deepseek-v4.1-flash` 等；Command Code：`deepseek/deepseek-v4.1-flash` 等（带厂商前缀）；**每个供应商单独保存** |
 
-**测试连接**按钮会先保存表单，再由服务器代发一条 `ping` 请求
-（`POST /ThunderSubtitle/AiTest`），页面直接显示「连接成功 / HTTP 错误 / 超时」。
+**测试连接**按钮会直接用**当前表单值**发一条极短请求
+（`POST /ThunderSubtitle/Ai/Test`），**不会保存配置**；页面显示结论、实际地址、模型和模型回复。
+这样切换供应商后可以先测、确认无误再保存，也避免"测的其实是上一次保存的供应商"。
 由服务器代发而不是浏览器直连，是因为 API Key 只存在服务器配置里，
 第三方网关也几乎不会给 Jellyfin 页面放行 CORS。
 

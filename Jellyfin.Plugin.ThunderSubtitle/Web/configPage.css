@@ -183,3 +183,9 @@
 #ThunderSubtitleConfigPage .ts-status.ts-status-bad {
     border-left-color: #cc3b3b;
 }
+
+/* 测试连接的结果是多行文本（结论 / 地址 / 模型 / 回复）。
+   .fieldDescription 默认不保留换行，必须显式声明 pre-line。 */
+#ThunderSubtitleConfigPage #AiTestStatus {
+    white-space: pre-line;
+}

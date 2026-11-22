@@ -336,6 +336,9 @@
                                 <span>测试连接</span>
                             </button>
                         </div>
+                        <div class="fieldDescription">
+                            测试使用当前表单值，不会保存；确认无误后再点页面底部的「保存」。
+                        </div>
                         <div id="AiTestStatus" class="fieldDescription"></div>
                     </div>
                 </fieldset>
@@ -408,7 +411,10 @@
             // 三个供应商各存一份 API Key / 模型：切换下拉框时先把当前输入写回原供应商，
             // 再把目标供应商已保存的值填进表单。这样来回切换既不会串 Key，也不用重填模型。
             var providerDrafts = {};
-            var activeProvider = 'OpenCode';
+
+            // 当前表单里展示的是哪个供应商的存档。用它而不是「下拉框当前值」来决定
+            // 切换时该把输入存回哪一格 —— 两者在页面异步加载期间可能短暂不一致。
+            var renderedProvider = '';
 
             // 内置供应商的默认模型；自定义网关没法猜，保持空。
             var ProviderDefaultModels = {
@@ -497,14 +503,14 @@
                 byId('AiProviderHint').innerHTML = ProviderHints[provider];
                 byId('AiModelHint').textContent = ModelHints[provider]
                     + ' 每个供应商的模型也是单独保存的，切回来不用重填。';
+                renderedProvider = provider;
             }
 
             function syncProviderRows() {
                 var provider = normalizeProvider(byId('AiProvider').value);
-                if (provider !== activeProvider) {
+                if (provider !== renderedProvider) {
                     // 先把用户刚敲进表单的值存回原供应商，再切到目标供应商的存档。
-                    stashProviderFields(activeProvider);
-                    activeProvider = provider;
+                    stashProviderFields(renderedProvider);
                     showProviderFields(provider);
                     return;
                 }
@@ -705,10 +711,9 @@
                     byId('AiEnabled').checked = cfg.AiEnabled === true;
                     providerDrafts = readProviderDrafts(cfg);
                     ensureProviderDrafts();
-                    activeProvider = normalizeProvider(cfg.AiProvider);
-                    byId('AiProvider').value = activeProvider;
+                    byId('AiProvider').value = normalizeProvider(cfg.AiProvider);
                     byId('AiBaseUrl').value = cfg.AiBaseUrl || '';
-                    showProviderFields(activeProvider);
+                    showProviderFields(byId('AiProvider').value);
                     byId('AiPerTier').value = cfg.AiPerTier || 5;
                     byId('AiTimeoutSeconds').value = cfg.AiTimeoutSeconds || 100;
                     byId('AiAlignedSegments').value = cfg.AiAlignedSegments || 6;
@@ -868,36 +873,68 @@
                 });
             }
 
-            // 测试连接：先把表单存下来，再让服务器代发一条最小请求。
-            // 必须「先保存」——服务器读的是已落盘的配置，不保存的话刚改的 Key / 模型测的还是旧值。
+            // 收集 AI 表单的当前值。测试连接必须用它：服务端读已保存配置的话，
+            // 切换供应商后先点测试会测到上一个供应商。
+            function collectTestRequest() {
+                ensureProviderDrafts();
+                var provider = normalizeProvider(byId('AiProvider').value);
+                stashProviderFields(provider);
+
+                var timeout = parseInt(byId('AiTimeoutSeconds').value, 10);
+
+                return {
+                    provider: provider,
+                    baseUrl: byId('AiBaseUrl').value.trim(),
+                    openCodeApiKey: providerDrafts.OpenCode.apiKey,
+                    openCodeModel: providerDrafts.OpenCode.model,
+                    commandCodeApiKey: providerDrafts.CommandCode.apiKey,
+                    commandCodeModel: providerDrafts.CommandCode.model,
+                    customApiKey: providerDrafts.Custom.apiKey,
+                    customModel: providerDrafts.Custom.model,
+                    timeoutSeconds: isNaN(timeout) ? 100 : Math.min(300, Math.max(10, timeout))
+                };
+            }
+
+            // 测试连接：把当前表单值发给服务器，由服务器代发一条最小请求。
+            // 不在测试前保存配置 —— 测试不通过时不该留下坏配置；确认无误再点「保存」。
             // 也不能让浏览器直接连模型服务：API Key 只存在服务器上，跨域也会被拦。
             function testAi() {
                 var box = byId('AiTestStatus');
                 var button = byId('TestAi');
-                var saved = false;
 
                 Dashboard.showLoadingMsg();
                 button.disabled = true;
                 box.className = 'fieldDescription';
-                box.textContent = '正在保存并测试…';
+                box.textContent = '正在测试当前填写的配置（不会保存）…';
 
-                return save(null).then(function () {
-                    saved = true;
-                    Dashboard.showLoadingMsg();
-                    return ApiClient.ajax({
-                        type: 'POST',
-                        url: ApiClient.getUrl('ThunderSubtitle/AiTest'),
-                        dataType: 'json'
-                    });
+                return ApiClient.ajax({
+                    type: 'POST',
+                    url: ApiClient.getUrl('ThunderSubtitle/Ai/Test'),
+                    data: JSON.stringify(collectTestRequest()),
+                    contentType: 'application/json',
+                    dataType: 'json'
                 }).then(function (result) {
-                    var suffix = result.elapsedMs ? '（' + result.elapsedMs + ' ms）' : '';
-                    box.textContent = (result.message || '没有返回信息。') + suffix;
+                    // 与 AV Collection 保持完全相同的四行格式：用户一眼就能确认
+                    // 这次测的到底是哪家地址、哪个模型，而不是只看一句"连接成功"。
+                    var lines = [result.message || (result.ok ? '连接正常' : '连接失败')];
+
+                    if (result.endpoint) {
+                        lines.push('地址：' + result.endpoint);
+                    }
+
+                    if (result.model) {
+                        lines.push('模型：' + result.model);
+                    }
+
+                    if (result.ok && result.reply) {
+                        lines.push('模型回复：' + result.reply);
+                    }
+
+                    box.textContent = lines.join('\n');
                     box.className = 'fieldDescription' + (result.ok ? '' : ' ts-status-bad');
                 }, function (xhr) {
-                    var text = saved
-                        ? ((xhr && xhr.responseText) ? xhr.responseText : '未知错误')
-                        : '保存失败，请先检查表单里的数值。';
-                    box.textContent = saved ? ('测试失败：' + text) : text;
+                    var text = (xhr && xhr.responseText) ? xhr.responseText : '未知错误';
+                    box.textContent = '测试失败：' + text;
                     box.className = 'fieldDescription ts-status-bad';
                 }).finally(function () {
                     button.disabled = false;
@@ -915,6 +952,9 @@
 
             document.querySelector('#ThunderSubtitleForm').addEventListener('submit', save);
             document.querySelector('#AiProvider').addEventListener('change', syncProviderRows);
+
+            // 某些浏览器 / 自定义元素组合只在 input 阶段派发事件；两个都挂，sync 本身幂等。
+            document.querySelector('#AiProvider').addEventListener('input', syncProviderRows);
             document.querySelector('#ReloadLibraries').addEventListener('click', function () {
                 loadLibraries().then(function () {
                     setStatus('已刷新影视库列表，记得保存。');
