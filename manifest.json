@@ -9,6 +9,14 @@
     "imageUrl": "https://raw.githubusercontent.com/Louis-15/Jellyfin-Thunder-Subtitle/main/logo.png",
     "versions": [
       {
+        "version": "1.12.0.2",
+        "changelog": "Release 1.12.0.2\n\n修复「测试连接」结果在部分环境下不换行；保存按钮移至设置页最下方并改为「保存设置」；「立即自动择优」更名为「立即择优」。",
+        "targetAbi": "12.2.0.0",
+        "sourceUrl": "https://github.com/Louis-15/Jellyfin-Thunder-Subtitle/releases/download/v1.12.0.2/thunder-subtitle_1.12.0.2.zip",
+        "checksum": "29320457df490afa4cb8f9844dd8c05d",
+        "timestamp": "2026-11-22T11:43:52Z"
+      },
+      {
         "version": "1.12.0.1",
         "changelog": "Release 1.12.0.1\n\n修复「测试连接」使用已保存配置的问题——改为用当前表单值测试且不再自动保存；结果统一显示实际地址、模型和模型回复；修复切换供应商后 Key / 模型可能不刷新的问题。",
         "targetAbi": "12.2.0.0",
