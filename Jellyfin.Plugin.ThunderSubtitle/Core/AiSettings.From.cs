@@ -16,8 +16,8 @@ public sealed partial record AiSettings
     {
         return new AiSettings(
             configuration.ApiRoot,
-            configuration.AiApiKey,
-            configuration.AiModel,
+            configuration.ResolveApiKey(),
+            configuration.ResolveModel(),
             configuration.AiAlignedSegments,
             configuration.AiAlignedCues,
             configuration.AiMaxCharsPerCandidate,

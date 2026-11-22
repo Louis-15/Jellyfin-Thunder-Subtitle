@@ -23,6 +23,35 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
         : base(applicationPaths, xmlSerializer)
     {
         Instance = this;
+        MigrateAiCredentials();
+    }
+
+    /// <summary>
+    /// 把 1.11 及更早版本的单一 AI 凭据迁移到「当前供应商」的独立槽位。
+    ///
+    /// 旧版只有一组 <c>AiApiKey</c> / <c>AiModel</c>；1.12 起每个供应商各存一份。
+    /// 必须在服务端加载时完成并写回：配置页读的是新槽位，老配置的新槽位是空的，
+    /// 用户升级后打开页面点一次「保存」就会把旧字段清空 —— 密钥就永久丢了。
+    /// </summary>
+    private void MigrateAiCredentials()
+    {
+        if (string.IsNullOrWhiteSpace(Configuration.AiApiKey)
+            && string.IsNullOrWhiteSpace(Configuration.AiModel))
+        {
+            return;
+        }
+
+        try
+        {
+            // Normalize 内部会调用 MigrateLegacyCredentials，把旧值搬进槽位并清空旧字段。
+            Configuration.Normalize();
+            UpdateConfiguration(Configuration);
+        }
+        catch (Exception)
+        {
+            // 迁移失败不该阻止插件加载：运行期每条链路还会再 Normalize 一次，
+            // 最坏情况是用户到配置页重新填一次 Key。
+        }
     }
 
     /// <summary>Gets the current plugin instance.</summary>

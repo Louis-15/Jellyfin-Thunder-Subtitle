@@ -62,7 +62,7 @@ public sealed class AiTestController : ControllerBase
         var config = Plugin.Current;
         config.Normalize();
 
-        if (string.IsNullOrWhiteSpace(config.AiModel))
+        if (string.IsNullOrWhiteSpace(config.ResolveModel()))
         {
             return Ok(new { ok = false, message = "还没有填写模型名。", elapsedMs = 0L });
         }

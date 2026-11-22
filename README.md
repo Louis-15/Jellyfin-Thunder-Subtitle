@@ -483,10 +483,10 @@ docker logs --tail 200 jellyfin 2>&1 | grep -i "Thunder Subtitle"
 | 配置项 | 说明 |
 |---|---|
 | 启用 AI | 关闭后只按本地规则排序，不调用任何接口 |
-| 供应商 | **Open Code（内置）** 或自定义 OpenAI 兼容端点 |
+| 供应商 | **Open Code（内置）**、**Command Code（内置）** 或自定义 OpenAI 兼容端点 |
 | API Base URL | 仅「自定义」需要填写 |
-| API Key | 以 `Authorization: Bearer` 发送，不写入日志 |
-| 模型 | Open Code 可使用 `deepseek-v4.1-flash`、`glm-5.3-flash`、`kimi-k3` 等 |
+| API Key | 以 `Authorization: Bearer` 发送，不写入日志；**每个供应商单独保存** |
+| 模型 | Open Code：`deepseek-v4.1-flash` 等；Command Code：`deepseek/deepseek-v4.1-flash` 等（带厂商前缀）；**每个供应商单独保存** |
 
 **测试连接**按钮会先保存表单，再由服务器代发一条 `ping` 请求
 （`POST /ThunderSubtitle/AiTest`），页面直接显示「连接成功 / HTTP 错误 / 超时」。
@@ -506,6 +506,19 @@ Base URL 固定为 `https://opencode.ai/inference/go/openai/v1`，无需填写�
 
 插件会自动附加该请求头，取值形如 `<本次运行 GUID>-<条目 ID>`，同一部影片在同一次运行内保持不变。
 客户端使用插件自身的 User-Agent（`Jellyfin.Plugin.ThunderSubtitle/x.y.z`），文档同样要求不使用通用 SDK 名称。
+
+**Command Code（内置）**
+
+Base URL 固定为 `https://api.commandcode.ai/provider/v1`，标准 OpenAI Chat Completions 兼容接口
+（`POST /chat/completions`），鉴权同样使用 `Authorization: Bearer`，不需要额外的会话头。
+
+模型名**带厂商前缀**，例如 `deepseek/deepseek-v4.1-flash`、`moonshotai/Kimi-K3`、`zai-org/GLM-5.3`。
+直接照搬 OpenCode 的 `deepseek-v4.1-flash` 会被判 `400 unsupported_model`。
+实时模型列表：`GET https://api.commandcode.ai/provider/v1/models`。
+
+**每个供应商的 Key 与模型单独保存**：从 Open Code 切到 Command Code（再切回来）时，
+插件会自动换用该供应商自己那一份存档，不需要重新填 Key，也不需要重新记模型名。
+旧版本只有一组 Key / 模型，升级后会自动归到当时选中的供应商。
 
 **自定义（任意 OpenAI 兼容端点）**
 

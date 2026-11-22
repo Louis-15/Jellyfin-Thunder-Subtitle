@@ -17,13 +17,16 @@ public partial class PluginConfiguration
     public bool AiEnabled { get; set; }
 
     /// <summary>
-    /// Gets or sets the AI provider: <c>OpenCode</c> (built in) or <c>Custom</c>
-    /// (any other OpenAI-compatible endpoint).
+    /// Gets or sets the AI provider: <c>OpenCode</c> / <c>CommandCode</c> (both built in)
+    /// or <c>Custom</c> (any other OpenAI-compatible endpoint).
     /// </summary>
     public string AiProvider { get; set; } = AiProviderOpenCode;
 
     /// <summary>Provider id for the built-in OpenCode Go endpoint.</summary>
     public const string AiProviderOpenCode = "OpenCode";
+
+    /// <summary>Provider id for the built-in Command Code Provider API.</summary>
+    public const string AiProviderCommandCode = "CommandCode";
 
     /// <summary>Provider id for a user-supplied OpenAI-compatible endpoint.</summary>
     public const string AiProviderCustom = "Custom";
@@ -37,14 +40,58 @@ public partial class PluginConfiguration
     /// <summary>Sensible default model on OpenCode Go.</summary>
     public const string OpenCodeDefaultModel = "deepseek-v4.1-flash";
 
+    /// <summary>
+    /// Command Code Provider API 的根地址。
+    ///
+    /// 它是标准 OpenAI Chat Completions 兼容接口（OpenAI 模型与开源模型都走
+    /// <c>/chat/completions</c>），鉴权用 Bearer，不需要 OpenCode 那种会话头。
+    /// </summary>
+    public const string CommandCodeBaseUrl = "https://api.commandcode.ai/provider/v1";
+
+    /// <summary>
+    /// Command Code 的默认模型。
+    ///
+    /// 注意模型名带厂商前缀（<c>deepseek/…</c>、<c>moonshotai/…</c>、<c>zai-org/…</c>）。
+    /// 直接照搬 OpenCode 的 <c>deepseek-v4.1-flash</c> 会被判 <c>400 unsupported_model</c>，
+    /// 所以换供应商时模型必须跟着换成该供应商自己的那一份。
+    /// </summary>
+    public const string CommandCodeDefaultModel = "deepseek/deepseek-v4.1-flash";
+
     /// <summary>Gets or sets the OpenAI-compatible API root for the custom provider.</summary>
     public string AiBaseUrl { get; set; } = string.Empty;
 
-    /// <summary>Gets or sets the API key. Sent as a bearer token, never logged.</summary>
+    /// <summary>
+    /// 旧版的单一 API Key 字段，只用于迁移。
+    ///
+    /// 1.12 起每个供应商各有独立槽位（<see cref="AiOpenCodeApiKey"/> 等），
+    /// <see cref="NormalizeAi"/> 会把这里的值搬进「当前供应商」的槽位并清空，
+    /// 这样切换供应商不会互相覆盖密钥。保留属性是为了旧 XML 仍能正常解析。
+    /// </summary>
     public string AiApiKey { get; set; } = string.Empty;
 
-    /// <summary>Gets or sets the model name.</summary>
-    public string AiModel { get; set; } = OpenCodeDefaultModel;
+    /// <summary>旧版的单一模型字段；语义同 <see cref="AiApiKey"/>，只用于迁移。</summary>
+    public string AiModel { get; set; } = string.Empty;
+
+    /// <summary>Open Code 的 API Key。切换供应商不会覆盖这一份。</summary>
+    public string AiOpenCodeApiKey { get; set; } = string.Empty;
+
+    /// <summary>Open Code 的模型名；留空时回落到 <see cref="OpenCodeDefaultModel"/>。</summary>
+    public string AiOpenCodeModel { get; set; } = string.Empty;
+
+    /// <summary>Command Code 的 API Key。与 Open Code / 自定义的 Key 互不影响。</summary>
+    public string AiCommandCodeApiKey { get; set; } = string.Empty;
+
+    /// <summary>Command Code 的模型名；留空时回落到 <see cref="CommandCodeDefaultModel"/>。</summary>
+    public string AiCommandCodeModel { get; set; } = string.Empty;
+
+    /// <summary>自定义供应商的 API Key。与两个内置供应商的 Key 互不影响。</summary>
+    public string AiCustomApiKey { get; set; } = string.Empty;
+
+    /// <summary>
+    /// 自定义供应商的模型名。
+    /// 自定义网关的模型名无法预知，留空就是留空（不会塞一个根本不存在的默认值）。
+    /// </summary>
+    public string AiCustomModel { get; set; } = string.Empty;
 
     /// <summary>
     /// 每个语言档位挑几份送 AI 评审。
@@ -163,16 +210,69 @@ public partial class PluginConfiguration
     /// <summary>Gets a value indicating whether the AI check has everything it needs.</summary>
     public bool IsAiUsable => AiEnabled
                               && !string.IsNullOrWhiteSpace(ApiRoot)
-                              && !string.IsNullOrWhiteSpace(AiModel);
+                              && !string.IsNullOrWhiteSpace(ResolveModel());
 
     /// <summary>Gets the effective API root for the selected provider.</summary>
     public string ApiRoot => IsOpenCodeProvider
         ? OpenCodeBaseUrl
+        : IsCommandCodeProvider ? CommandCodeBaseUrl
         : (AiBaseUrl ?? string.Empty).Trim();
 
     /// <summary>Gets a value indicating whether the built-in OpenCode endpoint is selected.</summary>
     public bool IsOpenCodeProvider =>
         string.Equals(AiProvider, AiProviderOpenCode, StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>Gets a value indicating whether the built-in Command Code endpoint is selected.</summary>
+    public bool IsCommandCodeProvider =>
+        string.Equals(AiProvider, AiProviderCommandCode, StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>Gets a value indicating whether the user-supplied endpoint is selected.</summary>
+    public bool IsCustomProvider => !IsOpenCodeProvider && !IsCommandCodeProvider;
+
+    /// <summary>
+    /// 取当前供应商的 API Key。
+    ///
+    /// 槽位为空时回退到旧字段：未经过 <see cref="Normalize"/> 的对象（单元测试、离线工具
+    /// 直接构造配置）也能读到值，不会因为「还没迁移」就静默变成无鉴权请求。
+    /// </summary>
+    /// <returns>The API key for the selected provider.</returns>
+    public string ResolveApiKey()
+    {
+        var key = IsOpenCodeProvider ? AiOpenCodeApiKey
+            : IsCommandCodeProvider ? AiCommandCodeApiKey
+            : AiCustomApiKey;
+
+        return string.IsNullOrWhiteSpace(key) ? (AiApiKey ?? string.Empty) : key;
+    }
+
+    /// <summary>
+    /// 取当前供应商的模型名。
+    ///
+    /// 内置供应商在槽位为空时回落到各自的默认模型：这样切到 Command Code 不用先查文档
+    /// 才知道填什么；自定义供应商则保持为空，因为没人能猜出对方网关上有什么模型。
+    /// </summary>
+    /// <returns>The model name for the selected provider.</returns>
+    public string ResolveModel()
+    {
+        var model = IsOpenCodeProvider ? AiOpenCodeModel
+            : IsCommandCodeProvider ? AiCommandCodeModel
+            : AiCustomModel;
+
+        if (!string.IsNullOrWhiteSpace(model))
+        {
+            return model;
+        }
+
+        // 旧配置（迁移前）只有 AiModel 这一份值。
+        if (!string.IsNullOrWhiteSpace(AiModel))
+        {
+            return AiModel;
+        }
+
+        return IsOpenCodeProvider ? OpenCodeDefaultModel
+            : IsCommandCodeProvider ? CommandCodeDefaultModel
+            : string.Empty;
+    }
 
     /// <summary>Clamps the AI settings a hand-edited config file could have broken.</summary>
     private void NormalizeAi()
@@ -180,13 +280,29 @@ public partial class PluginConfiguration
         AiBaseUrl ??= string.Empty;
         AiApiKey ??= string.Empty;
         AiModel ??= string.Empty;
-        AiProvider = string.Equals(AiProvider, AiProviderCustom, StringComparison.OrdinalIgnoreCase)
-            ? AiProviderCustom
-            : AiProviderOpenCode;
+        AiOpenCodeApiKey ??= string.Empty;
+        AiOpenCodeModel ??= string.Empty;
+        AiCommandCodeApiKey ??= string.Empty;
+        AiCommandCodeModel ??= string.Empty;
+        AiCustomApiKey ??= string.Empty;
+        AiCustomModel ??= string.Empty;
 
-        if (string.IsNullOrWhiteSpace(AiModel))
+        // 只认三个已知供应商：手改配置写成未知值时按 Custom 处理（地址必须由用户填、
+        // 请求头也不会错加），比悄悄当成内置供应商更不容易产生难查的 401。
+        AiProvider = IsOpenCodeProvider ? AiProviderOpenCode
+            : IsCommandCodeProvider ? AiProviderCommandCode
+            : AiProviderCustom;
+
+        MigrateLegacyCredentials();
+
+        if (string.IsNullOrWhiteSpace(AiOpenCodeModel))
         {
-            AiModel = OpenCodeDefaultModel;
+            AiOpenCodeModel = OpenCodeDefaultModel;
+        }
+
+        if (string.IsNullOrWhiteSpace(AiCommandCodeModel))
+        {
+            AiCommandCodeModel = CommandCodeDefaultModel;
         }
 
         // AiTopCandidates / AiSampleCues 已不再参与筛选，但仍然收敛一次：
@@ -205,5 +321,45 @@ public partial class PluginConfiguration
         NearDuplicateThreshold = Math.Clamp(NearDuplicateThreshold, 0.80, 1.0);
         AiCacheDays = Math.Clamp(AiCacheDays, 1, 365);
         AiTypoWarnRate = Math.Clamp(AiTypoWarnRate, 0, 20);
+    }
+
+    /// <summary>
+    /// 把旧版单一字段（<see cref="AiApiKey"/> / <see cref="AiModel"/>）搬进
+    /// 「当前选中的供应商」槽位，然后清空旧字段。
+    ///
+    /// 为什么要清空：不清的话，用户以后给另一个供应商留空 Key 时，
+    /// <see cref="ResolveApiKey"/> 的兼容回退会把旧 Key 又塞回来 —— 看起来像"清不掉"。
+    /// 槽位已有值时保留槽位值，避免把用户在新版里刚改过的内容覆盖掉。
+    /// </summary>
+    private void MigrateLegacyCredentials()
+    {
+        if (string.IsNullOrWhiteSpace(AiApiKey) && string.IsNullOrWhiteSpace(AiModel))
+        {
+            return;
+        }
+
+        if (IsOpenCodeProvider)
+        {
+            AiOpenCodeApiKey = FirstNonEmpty(AiOpenCodeApiKey, AiApiKey);
+            AiOpenCodeModel = FirstNonEmpty(AiOpenCodeModel, AiModel);
+        }
+        else if (IsCommandCodeProvider)
+        {
+            AiCommandCodeApiKey = FirstNonEmpty(AiCommandCodeApiKey, AiApiKey);
+            AiCommandCodeModel = FirstNonEmpty(AiCommandCodeModel, AiModel);
+        }
+        else
+        {
+            AiCustomApiKey = FirstNonEmpty(AiCustomApiKey, AiApiKey);
+            AiCustomModel = FirstNonEmpty(AiCustomModel, AiModel);
+        }
+
+        AiApiKey = string.Empty;
+        AiModel = string.Empty;
+    }
+
+    private static string FirstNonEmpty(string? preferred, string? fallback)
+    {
+        return !string.IsNullOrWhiteSpace(preferred) ? preferred : (fallback ?? string.Empty);
     }
 }

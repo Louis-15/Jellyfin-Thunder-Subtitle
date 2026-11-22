@@ -255,7 +255,7 @@ public sealed partial class SubtitleFinder : ISubtitleFinder
         }
 
         var keys = shortlist
-            .Select(pick => AiScoreCache.Key(pick, kind, extraInstruction, config.AiModel))
+            .Select(pick => AiScoreCache.Key(pick, kind, extraInstruction, config.ResolveModel()))
             .ToArray();
 
         IReadOnlyDictionary<int, AiVerdict>? verdicts = null;
