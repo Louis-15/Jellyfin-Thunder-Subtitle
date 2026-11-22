@@ -9,6 +9,14 @@
     "imageUrl": "https://raw.githubusercontent.com/Louis-15/Jellyfin-Thunder-Subtitle/main/logo.png",
     "versions": [
       {
+        "version": "1.12.0.0",
+        "changelog": "Release 1.12.0.0\n\n新增内置 AI 供应商 Command Code（https://api.commandcode.ai/provider/v1，默认模型 deepseek/deepseek-v4.1-flash）；API Key 与模型改为按供应商独立保存，切换供应商不再需要重填；旧配置在启动时自动迁移到当前供应商槽位。",
+        "targetAbi": "12.2.0.0",
+        "sourceUrl": "https://github.com/Louis-15/Jellyfin-Thunder-Subtitle/releases/download/v1.12.0.0/thunder-subtitle_1.12.0.0.zip",
+        "checksum": "b622b046a572018394a6b0f87891e69b",
+        "timestamp": "2026-11-22T11:02:45Z"
+      },
+      {
         "version": "1.11.0.2",
         "changelog": "Release 1.11.0.2\n\nRelease 1.11.0.2\n\n文档更新：新增「一次评审要花多少钱」一节，给出一次 AI 评审的 token 规模与费用区间。\n- DeepSeek 官方 API：一次约人民币 0.8 分到 3 分多，高峰时段翻倍\n- OpenCode Go 等套餐：按官方标价计费、额度约为订阅价的 10 倍，花费约为官方的 1/10",
         "targetAbi": "12.2.0.0",
