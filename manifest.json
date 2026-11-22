@@ -9,6 +9,14 @@
     "imageUrl": "https://raw.githubusercontent.com/Louis-15/Jellyfin-Thunder-Subtitle/main/logo.png",
     "versions": [
       {
+        "version": "1.12.0.1",
+        "changelog": "Release 1.12.0.1\n\n修复「测试连接」使用已保存配置的问题——改为用当前表单值测试且不再自动保存；结果统一显示实际地址、模型和模型回复；修复切换供应商后 Key / 模型可能不刷新的问题。",
+        "targetAbi": "12.2.0.0",
+        "sourceUrl": "https://github.com/Louis-15/Jellyfin-Thunder-Subtitle/releases/download/v1.12.0.1/thunder-subtitle_1.12.0.1.zip",
+        "checksum": "4753ed290ec8faf64425efe06b8ef1f2",
+        "timestamp": "2026-11-22T11:28:16Z"
+      },
+      {
         "version": "1.12.0.0",
         "changelog": "Release 1.12.0.0\n\n新增内置 AI 供应商 Command Code（https://api.commandcode.ai/provider/v1，默认模型 deepseek/deepseek-v4.1-flash）；API Key 与模型改为按供应商独立保存，切换供应商不再需要重填；旧配置在启动时自动迁移到当前供应商槽位。",
         "targetAbi": "12.2.0.0",
