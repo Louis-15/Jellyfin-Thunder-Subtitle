@@ -359,41 +359,41 @@
                     </div>
                 </fieldset>
 
+                <fieldset class="ts-group">
+                    <legend class="ts-group-title">手动运行</legend>
+                    <div class="ts-group-body">
+                        <div class="ts-actions">
+                            <button is="emby-button" type="button" id="RunFill" class="raised">
+                                <span>立即补全</span>
+                            </button>
+                            <button is="emby-button" type="button" id="RunRepick" class="raised">
+                                <span>立即择优</span>
+                            </button>
+                        </div>
+                        <div id="RunStatus" class="ts-status" style="display: none;"></div>
+                    </div>
+                </fieldset>
+
+                <fieldset class="ts-group">
+                    <legend class="ts-group-title">关于</legend>
+                    <div class="ts-group-body">
+                        <div class="fieldDescription">
+                            插件仓库地址（控制台 → 插件 → 仓库，添加后可在此页直接检查更新）：
+                            <br />
+                            <code>https://raw.githubusercontent.com/Louis-15/Jellyfin-Thunder-Subtitle/main/manifest.json</code>
+                            <br />
+                            源码与问题反馈：
+                            <a href="https://github.com/Louis-15/Jellyfin-Thunder-Subtitle" target="_blank" rel="noopener">github.com/Louis-15/Jellyfin-Thunder-Subtitle</a>
+                        </div>
+                    </div>
+                </fieldset>
+
                 <div>
-                    <button is="emby-button" type="submit" class="raised button-submit block">
-                        <span>保存</span>
+                    <button is="emby-button" type="submit" class="raised button-submit">
+                        <span>保存设置</span>
                     </button>
                 </div>
             </form>
-
-            <fieldset class="ts-group" style="margin-top: 1.25rem;">
-                <legend class="ts-group-title">手动运行</legend>
-                <div class="ts-group-body">
-                    <div class="ts-actions">
-                        <button is="emby-button" type="button" id="RunFill" class="raised">
-                            <span>立即补全</span>
-                        </button>
-                        <button is="emby-button" type="button" id="RunRepick" class="raised">
-                            <span>立即自动择优</span>
-                        </button>
-                    </div>
-                    <div id="RunStatus" class="ts-status" style="display: none;"></div>
-                </div>
-            </fieldset>
-
-            <fieldset class="ts-group">
-                <legend class="ts-group-title">关于</legend>
-                <div class="ts-group-body">
-                    <div class="fieldDescription">
-                        插件仓库地址（控制台 → 插件 → 仓库，添加后可在此页直接检查更新）：
-                        <br />
-                        <code>https://raw.githubusercontent.com/Louis-15/Jellyfin-Thunder-Subtitle/main/manifest.json</code>
-                        <br />
-                        源码与问题反馈：
-                        <a href="https://github.com/Louis-15/Jellyfin-Thunder-Subtitle" target="_blank" rel="noopener">github.com/Louis-15/Jellyfin-Thunder-Subtitle</a>
-                    </div>
-                </div>
-            </fieldset>
         </div>
     </div>
 
@@ -895,6 +895,20 @@
                 };
             }
 
+            // 测试结果按行渲染成 <br>，不依赖 CSS 的 white-space。
+            // 反向代理 / 浏览器可能缓存旧版 Config.css，导致 pre-line 规则没生效、
+            // 四行文本被折叠成一行；<br> 在任何环境下都会换行。
+            function renderTestLines(box, lines) {
+                box.textContent = '';
+                lines.forEach(function (line, index) {
+                    if (index > 0) {
+                        box.appendChild(document.createElement('br'));
+                    }
+
+                    box.appendChild(document.createTextNode(line));
+                });
+            }
+
             // 测试连接：把当前表单值发给服务器，由服务器代发一条最小请求。
             // 不在测试前保存配置 —— 测试不通过时不该留下坏配置；确认无误再点「保存」。
             // 也不能让浏览器直接连模型服务：API Key 只存在服务器上，跨域也会被拦。
@@ -930,9 +944,8 @@
                         lines.push('模型回复：' + result.reply);
                     }
 
-                    box.textContent = lines.join('\n');
-                    box.className = 'fieldDescription' + (result.ok ? '' : ' ts-status-bad');
-                }, function (xhr) {
+                    renderTestLines(box, lines);
+                    box.className = 'fieldDescription' + (result.ok ? '' : ' ts-status-bad');                }, function (xhr) {
                     var text = (xhr && xhr.responseText) ? xhr.responseText : '未知错误';
                     box.textContent = '测试失败：' + text;
                     box.className = 'fieldDescription ts-status-bad';
